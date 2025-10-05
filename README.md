@@ -1,4 +1,5 @@
-# Godot Engine
+# Fork of the Godot Engine GitHub Repository for Experimenting
+This is not the official repository for Godot Engine!
 
 <p align="center">
   <a href="https://godotengine.org">
