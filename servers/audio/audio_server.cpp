@@ -33,6 +33,7 @@
 #include "core/config/project_settings.h"
 #include "core/debugger/engine_debugger.h"
 #include "core/error/error_macros.h"
+#include "core/io/config_file.h"
 #include "core/io/resource_loader.h"
 #include "core/math/audio_frame.h"
 #include "core/os/os.h"
@@ -1947,6 +1948,68 @@ void AudioServer::update_sample_playback_pitch_scale(const Ref<AudioSamplePlayba
 	return AudioDriver::get_singleton()->update_sample_playback_pitch_scale(p_playback, p_pitch_scale);
 }
 
+Error AudioServer::save_settings_ini(const String &p_path, const bool &p_save_volume, const bool &p_save_muted, const bool &p_save_mono, const bool &p_save_bypass) {
+	lock();
+	Bus::Effect
+
+			ConfigFile cfg = ConfigFile();
+	for (int index = 0; index < buses.size(); ++index) {
+		Bus *bus = buses[index];
+		const String &name = bus->name;
+		cfg.set_value(name, "id", index);
+		if (p_save_volume) {
+			cfg.set_value(name, "volume_db", bus->volume_db);
+		}
+		if (p_save_muted) {
+			cfg.set_value(name, "mute", bus->mute);
+		}
+		if (p_save_mono) {
+			cfg.set_value(name, "solo", bus->solo);
+		}
+		if (p_save_bypass) {
+			cfg.set_value(name, "bypass", bus->bypass);
+		}
+	}
+	Error err = cfg.save(p_path);
+
+	unlock();
+	return err;
+}
+
+Error AudioServer::load_settings_ini(const String &p_path) {
+	lock();
+
+	ConfigFile cfg = ConfigFile();
+	Error err = cfg.load(p_path);
+	if (err != OK) {
+		return err;
+	}
+
+	Vector<String> sections = cfg.get_sections();
+	for (const String &bus_name : sections) {
+		int id = cfg.get_value(bus_name, "id", -1);
+		float volume_db = cfg.get_value(bus_name, "volume_db", 0.0);
+		bool mute = cfg.get_value(bus_name, "mute", false);
+		bool solo = cfg.get_value(bus_name, "solo", false);
+		bool bypass = cfg.get_value(bus_name, "bypass", false);
+
+		int bus_index = get_bus_index(bus_name);
+		if (bus_index < 0) {
+			add_bus(id);
+		} else {
+			id = bus_index;
+		}
+
+		set_bus_name(id, bus_name);
+		set_bus_volume_db(id, volume_db);
+		set_bus_mute(id, mute);
+		set_bus_solo(id, solo);
+		set_bus_bypass_effects(id, bypass);
+	}
+	unlock();
+	return OK;
+}
+
 void AudioServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_bus_count", "amount"), &AudioServer::set_bus_count);
 	ClassDB::bind_method(D_METHOD("get_bus_count"), &AudioServer::get_bus_count);
@@ -2024,6 +2087,9 @@ void AudioServer::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("is_stream_registered_as_sample", "stream"), &AudioServer::is_stream_registered_as_sample);
 	ClassDB::bind_method(D_METHOD("register_stream_as_sample", "stream"), &AudioServer::register_stream_as_sample);
+
+	ClassDB::bind_method(D_METHOD("save_settings_ini", "path", "save_volume", "save_muted", "save_mono", "save_bypass"), &AudioServer::save_settings_ini);
+	ClassDB::bind_method(D_METHOD("load_settings_ini", "path"), &AudioServer::load_settings_ini);
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "bus_count"), "set_bus_count", "get_bus_count");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "output_device"), "set_output_device", "get_output_device");
