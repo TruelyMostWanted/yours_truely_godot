@@ -513,6 +513,9 @@ public:
 	double get_sample_playback_position(const Ref<AudioSamplePlayback> &p_playback);
 	void update_sample_playback_pitch_scale(const Ref<AudioSamplePlayback> &p_playback, float p_pitch_scale = 0.0f);
 
+	Error save_settings_ini(const String &p_path, const bool &p_save_volume, const bool &p_save_muted, const bool &p_save_mono, const bool &p_save_bypass);
+	Error load_settings_ini(const String &p_path);
+
 	AudioServer();
 	virtual ~AudioServer();
 };
