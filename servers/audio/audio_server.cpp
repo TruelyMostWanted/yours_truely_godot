@@ -1950,9 +1950,7 @@ void AudioServer::update_sample_playback_pitch_scale(const Ref<AudioSamplePlayba
 
 Error AudioServer::save_settings_ini(const String &p_path, const bool &p_save_volume, const bool &p_save_muted, const bool &p_save_mono, const bool &p_save_bypass) {
 	lock();
-	Bus::Effect
-
-			ConfigFile cfg = ConfigFile();
+	ConfigFile cfg = ConfigFile();
 	for (int index = 0; index < buses.size(); ++index) {
 		Bus *bus = buses[index];
 		const String &name = bus->name;
