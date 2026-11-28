@@ -71,6 +71,7 @@
 #include "scene/gui/split_container.h"
 #include "scene/gui/text_edit.h"
 #include "scene/gui/tree.h"
+#include "scene/main/scene_tree.h"
 #include "scene/main/timer.h"
 #include "scene/main/viewport.h"
 #include "servers/display/display_server.h"
