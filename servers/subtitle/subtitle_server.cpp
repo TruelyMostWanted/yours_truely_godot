@@ -326,6 +326,15 @@ String SubtitleServer::get_display_text(const Ref<Subtitle> &p_subtitle, const R
 	return text;
 }
 
+String SubtitleServer::get_display_speaker(const Ref<Subtitle> &p_subtitle, const Ref<SubtitleSegment> &p_segment) const {
+	ERR_FAIL_COND_V(p_segment.is_null(), String());
+	String speaker = p_segment->get_speaker();
+	if (!speaker.is_empty() && p_subtitle.is_valid() && p_subtitle->is_auto_translate() && TranslationServer::get_singleton()) {
+		speaker = TranslationServer::get_singleton()->get_or_add_domain(SNAME("subtitles"))->translate(speaker, Subtitle::SPEAKER_TRANSLATION_CONTEXT);
+	}
+	return speaker;
+}
+
 void SubtitleServer::set_enabled(bool p_enabled) {
 	if (enabled == p_enabled) {
 		return;
@@ -408,6 +417,7 @@ void SubtitleServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_track_time", "track_id"), &SubtitleServer::get_track_time);
 	ClassDB::bind_method(D_METHOD("get_active_segments", "track_id"), &SubtitleServer::get_active_segments);
 	ClassDB::bind_method(D_METHOD("get_track_text", "track_id"), &SubtitleServer::get_track_text);
+	ClassDB::bind_method(D_METHOD("get_display_speaker", "subtitle", "segment"), &SubtitleServer::get_display_speaker);
 	ClassDB::bind_method(D_METHOD("get_display_text", "subtitle", "segment", "bbcode"), &SubtitleServer::get_display_text, DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("set_enabled", "enabled"), &SubtitleServer::set_enabled);
 	ClassDB::bind_method(D_METHOD("is_enabled"), &SubtitleServer::is_enabled);

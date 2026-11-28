@@ -46,6 +46,8 @@ class SubtitleLabel : public RichTextLabel {
 	bool show_speaker_names = true;
 	int font_size = 32;
 	bool follow_accessibility_settings = true;
+	StringName preview_speaker = StringName("Speaker");
+	String preview_text = "The subtitle line appears here.";
 
 	ObjectID player_id;
 
@@ -53,6 +55,8 @@ class SubtitleLabel : public RichTextLabel {
 	void _connect_player(bool p_connect);
 	void _connect_settings(bool p_connect);
 	void _reconnect();
+	String _decorate_line(const String &p_line, const StringName &p_speaker, const String &p_display_speaker) const;
+	String _wrap_lines(const PackedStringArray &p_lines) const;
 
 protected:
 	void _notification(int p_what);
@@ -70,6 +74,10 @@ public:
 	int get_font_size() const;
 	void set_follow_accessibility_settings(bool p_enabled);
 	bool is_following_accessibility_settings() const;
+	void set_preview_speaker(const StringName &p_speaker);
+	StringName get_preview_speaker() const;
+	void set_preview_text(const String &p_text);
+	String get_preview_text() const;
 
 	// `font_size`, scaled by `AccessibilitySettingsServer.scale_subtitle_font_size()` when following the settings.
 	int get_display_font_size() const;

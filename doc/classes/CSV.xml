@@ -43,6 +43,7 @@
 		[b]Resource and files:[/b] [CSV] is a [Resource] (see [TextDataFormat]). [code]load("res://x.csv")[/code] of a plain file returns an instance, while files with a [code]$type[/code] marker load as the serialized resource. Plain files load with the project default options. The instance methods [method TextDataFormat.load] and [method TextDataFormat.save] work like [method ConfigFile.load] and [method ConfigFile.save]: they do not use the resource cache and do not set [member Resource.resource_path]. In exported games [code]res://[/code] is read-only, so save to [code]user://[/code].
 		[b]Changes:[/b] changing the data ([member TextDataFormat.data] in the inspector, [member TextDataFormat.data], [method set_cell], [method append_row] ...) drops the kept parsed text, so comments and formatting of the file are lost on the next save. [member TextDataFormat.options] set to [code]null[/code] uses the project settings.
 		[b]Import:[/b] In the editor, a [code].csv[/code] file whose header has locale columns is imported as a translation (importer "CSV Translation") and loads as [Translation]. Other CSV files use the "CSV Dataset" importer and load as [CSV]; so do files imported with [b]Keep File[/b].
+		For files that are too large to keep in memory, [CSVReader] reads rows one by one.
 		[b]Note:[/b] The static methods can be called from any thread. A [CSV] instance should be used by one thread at a time.
 	</description>
 	<tutorials>

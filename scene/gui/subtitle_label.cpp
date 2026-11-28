@@ -135,31 +135,49 @@ String SubtitleLabel::get_subtitle_text() const {
 			continue;
 		}
 		String line = server->get_display_text(subtitle, segment, true);
-		const StringName speaker = segment->get_speaker();
-		if (speaker != StringName() && !segment->is_caption()) {
-			if (show_speaker_names) {
-				line = String(speaker).replace("[", "[lb]") + ": " + line;
-			}
-			if (speaker_colors.has(speaker)) {
-				const Color color = speaker_colors.get(speaker, Color());
-				line = "[color=#" + color.to_html() + "]" + line + "[/color]";
-			}
+		if (!segment->is_caption()) {
+			// The name is translated like the text (domain `subtitles`, context `speaker`).
+			line = _decorate_line(line, segment->get_speaker(), server->get_display_speaker(subtitle, segment));
 		}
 		lines.push_back(line);
 	}
-	if (lines.is_empty()) {
+	return _wrap_lines(lines);
+}
+
+String SubtitleLabel::_decorate_line(const String &p_line, const StringName &p_speaker, const String &p_display_speaker) const {
+	String line = p_line;
+	if (p_speaker != StringName()) {
+		if (show_speaker_names) {
+			line = p_display_speaker.replace("[", "[lb]") + ": " + line;
+		}
+		if (speaker_colors.has(p_speaker)) {
+			const Color color = speaker_colors.get(p_speaker, Color());
+			line = "[color=#" + color.to_html() + "]" + line + "[/color]";
+		}
+	}
+	return line;
+}
+
+String SubtitleLabel::_wrap_lines(const PackedStringArray &p_lines) const {
+	if (p_lines.is_empty()) {
 		return String();
 	}
 	// A BBCode tag rather than a theme override: nothing of it is saved with the scene.
-	return vformat("[font_size=%d]", get_display_font_size()) + String("\n").join(lines) + "[/font_size]";
+	return vformat("[font_size=%d]", get_display_font_size()) + String("\n").join(p_lines) + "[/font_size]";
 }
 
 void SubtitleLabel::refresh() {
-	const String bbcode = get_subtitle_text();
+	String bbcode = get_subtitle_text();
+	const bool editor_hint = Engine::get_singleton()->is_editor_hint();
+	if (bbcode.is_empty() && editor_hint) {
+		// In the editor a sample line stays visible, so the label can be placed and styled without playing anything.
+		const String line = preview_text.replace("[", "[lb]");
+		bbcode = _wrap_lines(PackedStringArray({ _decorate_line(line, preview_speaker, preview_speaker) }));
+	}
 	if (bbcode != get_text()) {
 		set_text(bbcode);
 	}
-	if (!Engine::get_singleton()->is_editor_hint()) {
+	if (!editor_hint) {
 		set_visible(!bbcode.is_empty());
 	}
 }
@@ -252,6 +270,24 @@ bool SubtitleLabel::is_following_accessibility_settings() const {
 	return follow_accessibility_settings;
 }
 
+void SubtitleLabel::set_preview_speaker(const StringName &p_speaker) {
+	preview_speaker = p_speaker;
+	refresh();
+}
+
+StringName SubtitleLabel::get_preview_speaker() const {
+	return preview_speaker;
+}
+
+void SubtitleLabel::set_preview_text(const String &p_text) {
+	preview_text = p_text;
+	refresh();
+}
+
+String SubtitleLabel::get_preview_text() const {
+	return preview_text;
+}
+
 void SubtitleLabel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_player", "path"), &SubtitleLabel::set_player);
 	ClassDB::bind_method(D_METHOD("get_player"), &SubtitleLabel::get_player);
@@ -263,6 +299,10 @@ void SubtitleLabel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_font_size"), &SubtitleLabel::get_font_size);
 	ClassDB::bind_method(D_METHOD("set_follow_accessibility_settings", "enabled"), &SubtitleLabel::set_follow_accessibility_settings);
 	ClassDB::bind_method(D_METHOD("is_following_accessibility_settings"), &SubtitleLabel::is_following_accessibility_settings);
+	ClassDB::bind_method(D_METHOD("set_preview_speaker", "speaker"), &SubtitleLabel::set_preview_speaker);
+	ClassDB::bind_method(D_METHOD("get_preview_speaker"), &SubtitleLabel::get_preview_speaker);
+	ClassDB::bind_method(D_METHOD("set_preview_text", "text"), &SubtitleLabel::set_preview_text);
+	ClassDB::bind_method(D_METHOD("get_preview_text"), &SubtitleLabel::get_preview_text);
 	ClassDB::bind_method(D_METHOD("get_display_font_size"), &SubtitleLabel::get_display_font_size);
 	ClassDB::bind_method(D_METHOD("get_subtitle_text"), &SubtitleLabel::get_subtitle_text);
 	ClassDB::bind_method(D_METHOD("refresh"), &SubtitleLabel::refresh);
@@ -272,6 +312,9 @@ void SubtitleLabel::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "show_speaker_names"), "set_show_speaker_names", "is_showing_speaker_names");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "font_size", PROPERTY_HINT_RANGE, "1,256,1,or_greater,suffix:px"), "set_font_size", "get_font_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "follow_accessibility_settings"), "set_follow_accessibility_settings", "is_following_accessibility_settings");
+	ADD_GROUP("Preview", "preview_");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "preview_speaker"), "set_preview_speaker", "get_preview_speaker");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "preview_text", PROPERTY_HINT_MULTILINE_TEXT), "set_preview_text", "get_preview_text");
 }
 
 SubtitleLabel::SubtitleLabel() {

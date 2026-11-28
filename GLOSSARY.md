@@ -49,6 +49,7 @@ Terms of **truely-godot-engine** (this fork of [godotengine/godot](https://githu
 **Concept issue**: an issue that ends with a proposal and a "Decision" comment instead of code; decisions are collected on the wiki page `Design-Decisions` (for example #4, #6, #13, #14, #31).
 
 **CSV**: tabular text format in core with the same `parse()` / `stringify()` / `serialize()` shape as the other text formats. In code: `core/io/csv_format.*`. Wiki: [`CSV`](https://github.com/TruelyMostWanted/truelymostwanted-godot-engine/wiki/CSV).
+**CSVReader**: reads a large CSV file row by row from `FileAccess` (bounded memory, `seek_row()` with a sparse row index for paging, `count_rows()`, `read_record()`); `CSV` keeps every cell in memory. In code: `core/io/csv_reader.*`. Issues: #439 (concept #421). Wiki: [`Class-CSVReader`](https://github.com/TruelyMostWanted/truelymostwanted-godot-engine/wiki/Class-CSVReader).
 
 ### D
 
