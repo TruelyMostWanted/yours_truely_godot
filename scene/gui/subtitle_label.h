@@ -30,19 +30,18 @@
 
 #pragma once
 
-#include "core/variant/typed_dictionary.h"
 #include "scene/gui/rich_text_label.h"
 #include "servers/subtitle/subtitle.h"
 
 class SubtitlePlayer;
 
-// A ready-made subtitle line: shows the active segments of a `SubtitlePlayer`, colors speakers and follows
+// A ready-made subtitle line: shows the active segments of a `SubtitlePlayer`, names and colors speakers
+// (`SubtitleServer.speakers`) and follows
 // `AccessibilitySettingsServer` (`subtitles_enabled`, `captions_enabled`, `subtitle_scale`, `font_size_factor`). It writes `text` itself.
 class SubtitleLabel : public RichTextLabel {
 	GDCLASS(SubtitleLabel, RichTextLabel);
 
 	NodePath player;
-	TypedDictionary<StringName, Color> speaker_colors;
 	bool show_speaker_names = true;
 	int font_size = 32;
 	bool follow_accessibility_settings = true;
@@ -66,8 +65,6 @@ protected:
 public:
 	void set_player(const NodePath &p_path);
 	NodePath get_player() const;
-	void set_speaker_colors(const TypedDictionary<StringName, Color> &p_colors);
-	TypedDictionary<StringName, Color> get_speaker_colors() const;
 	void set_show_speaker_names(bool p_enabled);
 	bool is_showing_speaker_names() const;
 	void set_font_size(int p_size);

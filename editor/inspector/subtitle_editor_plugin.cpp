@@ -39,6 +39,7 @@
 #include "editor/editor_interface.h"
 #include "editor/editor_string_names.h"
 #include "editor/editor_undo_redo_manager.h"
+#include "editor/inspector/dialogue_speaker_editor_plugin.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
 #include "scene/gui/flow_container.h"
@@ -198,6 +199,7 @@ HashMap<int, PackedStringArray> SubtitleEditorHelper::get_problems(const Ref<Sub
 	const String empty_text = TTR("The text is empty.");
 	const String overlapping = TTR("Overlaps the next segment.");
 	const String fast_reading = TTR("More than 20 characters per second: hard to read in time.");
+	const String unknown_speaker = TTR("The speaker is not in the project's speakers (audio/subtitles/speakers).");
 	for (int index : validation->get_invalid_time_segments()) {
 		problems[index].push_back(invalid_time);
 	}
@@ -209,6 +211,9 @@ HashMap<int, PackedStringArray> SubtitleEditorHelper::get_problems(const Ref<Sub
 	}
 	for (int index : validation->get_fast_reading_segments()) {
 		problems[index].push_back(fast_reading);
+	}
+	for (int index : validation->get_unknown_speaker_segments()) {
+		problems[index].push_back(unknown_speaker);
 	}
 	return problems;
 }
@@ -602,4 +607,7 @@ SubtitleEditorPlugin::SubtitleEditorPlugin() {
 	Ref<EditorInspectorPluginSubtitleSync> sync_plugin;
 	sync_plugin.instantiate();
 	add_inspector_plugin(sync_plugin);
+	Ref<EditorInspectorPluginDialogueSpeaker> speaker_plugin; // Portrait and validation previews (#483).
+	speaker_plugin.instantiate();
+	add_inspector_plugin(speaker_plugin);
 }

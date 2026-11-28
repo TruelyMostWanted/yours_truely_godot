@@ -32,7 +32,9 @@
 
 #include "core/object/object.h"
 #include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
 #include "core/variant/callable.h"
+#include "servers/subtitle/dialogue_speaker.h"
 #include "servers/subtitle/subtitle.h"
 
 class AudioServer;
@@ -61,6 +63,15 @@ class SubtitleServer : public Object {
 	bool enabled = true;
 	bool captions_enabled = true;
 
+	// The project's speakers (`audio/subtitles/speakers`); never null. Their TTS personas are registered at
+	// TTSServer under the speaker ids, so player overrides (TTSPersonaSettingsServer) work per speaker.
+	Ref<DialogueSpeakers> speakers;
+	String project_speakers_path;
+	bool project_settings_connected = false;
+	bool project_speakers_loaded = false;
+	HashMap<StringName, Ref<TTSPersona>> registered_personas; // Our copies at TTSServer, by speaker id.
+	HashSet<StringName> foreign_persona_ids; // Ids with a persona of the game: warned once.
+
 	AudioServer *callback_server = nullptr;
 	uint64_t last_tick_usec = 0;
 
@@ -75,10 +86,18 @@ class SubtitleServer : public Object {
 	String _combined_text(const Track &p_track) const;
 	void _end_track(int p_track_id, bool p_finished);
 
+	void _speakers_changed();
+	// Registers, replaces or removes our persona copies by difference; `p_clear` removes all of them.
+	void _update_personas(bool p_clear);
+	void _load_speakers_from(const String &p_path);
+	void _project_settings_changed();
+
 protected:
 	static void _bind_methods();
 
 public:
+	static constexpr const char *SETTING_SPEAKERS = "audio/subtitles/speakers";
+
 	static SubtitleServer *get_singleton();
 
 	int play(const Ref<Subtitle> &p_subtitle, const Callable &p_time_source = Callable(), double p_from_time = 0.0);
@@ -98,6 +117,14 @@ public:
 
 	String get_display_text(const Ref<Subtitle> &p_subtitle, const Ref<SubtitleSegment> &p_segment, bool p_bbcode = false) const;
 	String get_display_speaker(const Ref<Subtitle> &p_subtitle, const Ref<SubtitleSegment> &p_segment) const;
+
+	void set_speakers(const Ref<DialogueSpeakers> &p_speakers);
+	Ref<DialogueSpeakers> get_speakers() const;
+	// Loads the speakers of `audio/subtitles/speakers`. Called when the server starts; the server loads them again
+	// when the setting names another file (or the last load failed). Main thread only, like the whole speakers API.
+	void load_project_speakers();
+	// Inspector: the speaker ids as suggestions on a StringName property (in the editor only).
+	static void add_speaker_id_hint(PropertyInfo &r_property);
 
 	void set_enabled(bool p_enabled);
 	bool is_enabled() const;

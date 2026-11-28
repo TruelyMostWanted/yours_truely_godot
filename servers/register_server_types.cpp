@@ -116,6 +116,7 @@
 #include "servers/settings/window_settings_server.h"
 #include "servers/settings/xr_settings.h"
 #include "servers/settings/xr_settings_server.h"
+#include "servers/subtitle/dialogue_speaker.h"
 #include "servers/subtitle/subtitle.h"
 #include "servers/subtitle/subtitle_playback.h"
 #include "servers/subtitle/subtitle_resource_format.h"
@@ -248,6 +249,8 @@ void register_server_types() {
 	GDREGISTER_CLASS(SubtitleValidation);
 	GDREGISTER_CLASS(Subtitle);
 	GDREGISTER_CLASS(SubtitlePlayback);
+	GDREGISTER_CLASS(DialogueSpeaker);
+	GDREGISTER_CLASS(DialogueSpeakers);
 	GDREGISTER_ABSTRACT_CLASS(SubtitleServer);
 	subtitle_server = memnew(SubtitleServer);
 	Engine::get_singleton()->add_singleton(Engine::Singleton("SubtitleServer", SubtitleServer::get_singleton(), "SubtitleServer"));

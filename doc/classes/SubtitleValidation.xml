@@ -29,6 +29,9 @@
 		<member name="overlapping_segments" type="PackedInt32Array" setter="" getter="get_overlapping_segments" default="PackedInt32Array()">
 			Segments that are still shown when the next segment starts. Overlaps are allowed (two people talking at once), but often a timing mistake.
 		</member>
+		<member name="unknown_speaker_segments" type="PackedInt32Array" setter="" getter="get_unknown_speaker_segments" default="PackedInt32Array()">
+			Dialog segments (not closed captions) whose [member SubtitleSegment.speaker] is not an id of [member SubtitleServer.speakers], for example after a speaker was renamed. Only checked when the project has speakers; ids ignore case.
+		</member>
 		<member name="valid" type="bool" setter="" getter="is_valid" default="true">
 			[code]true[/code] if all lists are empty.
 		</member>

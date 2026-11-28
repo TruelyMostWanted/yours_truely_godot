@@ -49,7 +49,7 @@
 			<param index="0" name="subtitle" type="Subtitle" />
 			<param index="1" name="segment" type="SubtitleSegment" />
 			<description>
-				Returns the speaker name of [param segment] to show: translated in the translation domain [code]"subtitles"[/code] with the context [code]"speaker"[/code] if [member Subtitle.auto_translate] of [param subtitle] is enabled, otherwise [member SubtitleSegment.speaker]. [param subtitle] may be [code]null[/code]. [method Subtitle.get_translatable_strings] lists the speaker names with the same context, so a POT file contains them.
+				Returns the speaker name of [param segment] to show. If [member speakers] has a [DialogueSpeaker] with the id [member SubtitleSegment.speaker] (ignoring case), this is its [method DialogueSpeaker.get_translated_name]. Otherwise it is the id itself: translated in the translation domain [code]"subtitles"[/code] with the context [code]"speaker"[/code] if [member Subtitle.auto_translate] of [param subtitle] is enabled, else unchanged. [param subtitle] may be [code]null[/code]. [method Subtitle.get_translatable_strings] lists the speaker names with the same context, so a POT file contains them.
 			</description>
 		</method>
 		<method name="get_display_text" qualifiers="const">
@@ -100,6 +100,12 @@
 			<param index="0" name="track_id" type="int" />
 			<description>
 				Returns [code]true[/code] if track [param track_id] exists (also when it is paused).
+			</description>
+		</method>
+		<method name="load_project_speakers">
+			<return type="void" />
+			<description>
+				Loads the [DialogueSpeakers] of [member ProjectSettings.audio/subtitles/speakers] into [member speakers] (an empty list if the setting is empty or the file cannot be loaded as [DialogueSpeakers]). Called when the server starts. Afterwards the server loads the speakers again by itself when the setting names another file, or on the next change of the project settings if the last load failed. Edits of the loaded resource reach the server through its [signal Resource.changed].
 			</description>
 		</method>
 		<method name="pause">
@@ -155,6 +161,25 @@
 		<member name="enabled" type="bool" setter="set_enabled" getter="is_enabled">
 			If [code]false[/code], no segment is shown: tracks keep running and finish, but emit no [signal segment_started]. Changing it updates all tracks at once and emits [signal enabled_changed]. Connect it to [member AccessibilitySettings.subtitles_enabled] to follow the player's setting.
 		</member>
+		<member name="speakers" type="DialogueSpeakers" setter="set_speakers" getter="get_speakers">
+			The speakers of the game, loaded from [member ProjectSettings.audio/subtitles/speakers] at startup. Never [code]null[/code]: setting [code]null[/code] sets an empty list. [method get_display_speaker], [SubtitleLabel] and [method DialogueLineNode.get_translated_speaker_name] take the names and colors from here, and the Inspector suggests these ids for [member SubtitleSegment.speaker] and [member DialogueLineNode.speaker].
+			The [member DialogueSpeaker.tts_persona] of every speaker is registered at [TTSServer] under the speaker id as written (a copy named after the id), so [code]TTSServer.speak_with_persona(text, speaker.id)[/code] speaks with the speaker's voice and the player's overrides of [TTSPersonaSettingsServer] work per speaker. Changes update only the server's own copies: a changed persona replaces its copy in place (a default persona of that name stays the default), a removed speaker removes its copy. A persona that the game added under the same name is never overwritten or removed; the speaker's persona is then not registered and a warning is printed once.
+			Changing the list or one of its speakers emits [signal speakers_changed]. The speakers API is for the main thread: setting [member speakers] or calling [method load_project_speakers] elsewhere fails, and a speaker changed on another thread is handled on the main thread (deferred).
+			[codeblocks]
+			[gdscript]
+			var speaker = SubtitleServer.speakers.get_speaker(&amp;"anna")
+			name_label.text = speaker.get_translated_name()
+			name_label.modulate = speaker.color
+			portrait.texture = speaker.load_portrait()
+			[/gdscript]
+			[csharp]
+			DialogueSpeaker speaker = SubtitleServer.Speakers.GetSpeaker("anna");
+			nameLabel.Text = speaker.GetTranslatedName();
+			nameLabel.Modulate = speaker.Color;
+			portrait.Texture = speaker.LoadPortrait();
+			[/csharp]
+			[/codeblocks]
+		</member>
 	</members>
 	<signals>
 		<signal name="captions_enabled_changed">
@@ -182,6 +207,12 @@
 			<param index="2" name="text" type="String" />
 			<description>
 				Emitted when [param segment] becomes visible on track [param track_id]. [param text] is its display text (see [method get_display_text]).
+			</description>
+		</signal>
+		<signal name="speakers_changed">
+			<param index="0" name="speakers" type="DialogueSpeakers" />
+			<description>
+				Emitted when [member speakers] was set or one of its speakers changed, after the TTS personas were registered again. [param speakers] is the current list.
 			</description>
 		</signal>
 		<signal name="text_changed">

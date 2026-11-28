@@ -59,6 +59,8 @@ class VideoStreamPlayer;
 // silence and spotted at the playhead with the keyboard. Timing tools shift, sync, split and merge segments;
 // a list shows the validation problems. Opened for a Subtitle resource, or from the Inspector of an AudioStream
 // with a subtitle file; the Inspector table is the quick path.
+class EditorSpeakerPicker;
+
 class SubtitlesDock : public EditorDock {
 	GDCLASS(SubtitlesDock, EditorDock);
 
@@ -175,6 +177,8 @@ class SubtitlesDock : public EditorDock {
 	Control *timeline = nullptr;
 	HScrollBar *timeline_scroll = nullptr;
 	Tree *tree = nullptr;
+	EditorSpeakerPicker *speaker_picker = nullptr;
+	int speaker_picker_row = -1;
 	AudioStreamPlayer *player = nullptr;
 
 	static real_t _get_ruler_height();
@@ -237,6 +241,8 @@ class SubtitlesDock : public EditorDock {
 	void _scroll_changed(double p_value);
 	void _tree_selected();
 	void _tree_edited();
+	void _tree_button_clicked(TreeItem *p_item, int p_column, int p_id, MouseButton p_button);
+	void _speaker_picked(const StringName &p_id);
 	void _tree_activated();
 	void _tree_mouse_selected(const Vector2 &p_position, MouseButton p_button);
 	void _file_removed(const String &p_file);
