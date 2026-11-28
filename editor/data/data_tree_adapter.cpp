@@ -657,6 +657,8 @@ DataTreeAdapter::NodeKind FlatDataTreeAdapter::_get_kind(const Variant &p_node) 
 
 Variant FlatDataTreeAdapter::_new_container(NodeKind p_kind) {
 	// A list is a container with the keys "0" .. "n-1"; until its first item it is a named one.
+	// Build first: a rebuild after this call (pending since the last edit) would forget the new container.
+	_build();
 	Dictionary created;
 	container_names.insert(created.id(), String());
 	return created;
