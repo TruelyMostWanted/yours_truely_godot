@@ -127,6 +127,18 @@ def check(paths: list[Path]) -> list[str]:
                 findings.append(
                     f"{path}:{line}: P5 `{name}` is set by std::move and never read (Clang -Wunused-but-set-variable); use it, e.g. {name}.clear()"
                 )
+        parts = (
+            path.resolve().relative_to(Path.cwd().resolve()).parts
+            if path.resolve().is_relative_to(Path.cwd().resolve())
+            else ()
+        )
+        if path.suffix == ".cpp" and len(parts) > 2 and parts[0] == "tests" and parts[1] != ".scu":
+            folder = "/" + "/".join(parts[1:-1])
+            scu = Path("scu_builders.py")
+            if scu.is_file() and f'"{folder}"' not in scu.read_text(encoding="utf-8"):
+                findings.append(
+                    f"{path}: P13 test folder `tests{folder}` is missing in the tests list of scu_builders.py; SCU builds skip it (undefined ForceLink symbol)"
+                )
         if path.suffix == ".cpp":
             new_names = _static_functions(raw) & _static_functions(_added_text(path))
             for other in sorted(path.parent.glob("*.cpp")):

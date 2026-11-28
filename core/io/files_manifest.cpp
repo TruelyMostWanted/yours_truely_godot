@@ -416,7 +416,7 @@ const PackedStringArray &FilesManifest::_get_load_paths(Error *r_error) const {
 Error FilesManifest::load_threaded_request_resources(bool p_use_sub_threads, ResourceLoaderConstants::CacheMode p_cache_mode) const {
 	load_paths_cached = false; // A new request scans the folders again.
 	Error paths_error = OK;
-	const PackedStringArray &paths = _get_load_paths(&paths_error);
+	[[maybe_unused]] const PackedStringArray &paths = _get_load_paths(&paths_error);
 	load_active = true;
 #ifdef THREADS_ENABLED
 	const Error request_error = load_threaded_request_paths(paths, _get_load_type_hint(), p_use_sub_threads, p_cache_mode);

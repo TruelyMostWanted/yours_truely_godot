@@ -41,6 +41,8 @@ Hooks nie mit `--no-verify` umgehen. Schlägt ein Hook fehl, die Ursache beheben
 | P10 | Ressourcen in `finish()`/Destruktoren freigeben: Listen leeren, Nodes `memdelete`n, keine globalen `Ref`s übrig lassen. | ASan/LSan in „Editor with … sanitizers“ (#214, #375). | – |
 | P11 | Upstream-Dateien nur minimal ändern und die Stelle kommentieren; lieber eigene Datei. | Merge-Konflikte beim Sync, Upstream-Warnungsniveau gilt auch für unsere Zeilen. | – |
 | P12 | Keine Bezeichner, die in System-Headern einer Plattform Makros sind: `PAGE_SIZE`/`PAGESIZE` (`limits.h` von Emscripten/musl), `linux`/`unix` (GCC/Clang). Konstanten mit Datei-Präfix benennen (`SQLITE_TABLE_PAGE_ROWS`). | Web-Editor: `expected unqualified-id` bei `static constexpr int PAGE_SIZE` (#419, Release-Dry-Run 2026-11-28). | ja |
+| P13 | Ein neuer Testordner unter `tests/` kommt in die Testliste von `scu_builders.py`. | SCU-Builds kompilieren nur die gelisteten Ordner: `undefined symbol: ForceLink::force_link_test_…` im Sanitizer-Editor (#436, #443; CI 2026-11-28). | ja |
+| P14 | Eine Variable, die nur in einem `#ifdef`-Zweig (z. B. `THREADS_ENABLED`) gelesen wird, bekommt `[[maybe_unused]]` oder wandert in den Zweig. | Web ohne Threads: `unused variable` mit `-Werror` (`files_manifest.cpp`, CI 2026-11-28). | – |
 
 ---
 
