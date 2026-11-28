@@ -612,12 +612,16 @@ bool DatasetEditor::_can_edit() {
 void DatasetEditor::_commit_records(const String &p_action, const Array &p_records, const PackedStringArray &p_names) {
 	OpenFile *file = _get_current_file();
 	Resource *resource = file->resource.ptr();
-	const String new_text = encode(resource, build_data(source, table_key, _get_resource_data(resource), p_records, p_names));
-	const String old_text = _get_text();
-	if (new_text == old_text) {
+	const Variant file_data = _get_resource_data(resource);
+	const Variant next_data = build_data(source, table_key, file_data, p_records, p_names);
+	// Compared as data, not as text: an edit that changes nothing (a refused value, the same value again) must not
+	// rewrite the file in the encoder's style.
+	if (next_data == file_data) {
 		_render();
 		return;
 	}
+	const String new_text = encode(resource, next_data);
+	const String old_text = _get_text();
 	// The text is the state: undo gives back the exact text, with its comments and formatting. Neighboring
 	// actions share their texts (copy-on-write), so each edit keeps about one copy of the file in memory.
 	_create_action(p_action);
