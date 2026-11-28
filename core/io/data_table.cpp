@@ -385,6 +385,14 @@ void DataTable::_emit_columns_changed() {
 }
 
 void DataTable::_insert_field(int p_column, const Ref<DataField> &p_field) {
+	if (schema.is_null()) {
+		// The table's own schema, created with the first column (the property default stays null).
+		Ref<DataSchema> own;
+		own.instantiate();
+		updating_schema = true;
+		set_schema(own);
+		updating_schema = false;
+	}
 	TypedArray<DataField> fields = schema->get_fields();
 	fields.insert(p_column, p_field);
 	updating_schema = true;
@@ -429,7 +437,7 @@ void DataTable::_restore_cells(int p_column, const ColumnCells &p_cells, DataVal
 Ref<DataValidation> DataTable::_sync_columns() {
 	Ref<DataValidation> validation;
 	validation.instantiate();
-	const TypedArray<DataField> fields = schema->get_fields();
+	const TypedArray<DataField> fields = schema.is_valid() ? schema->get_fields() : TypedArray<DataField>();
 	bool same_fields = (int)columns.size() == fields.size();
 	for (int i = 0; same_fields && i < fields.size(); i++) {
 		same_fields = columns[i].field == Ref<DataField>(fields[i]);
@@ -494,16 +502,16 @@ Ref<DataValidation> DataTable::_sync_columns() {
 }
 
 void DataTable::set_schema(const Ref<DataSchema> &p_schema) {
-	if (p_schema == schema && schema.is_valid()) {
+	if (p_schema == schema) {
 		return;
 	}
-	schema->disconnect_changed(callable_mp(this, &DataTable::_schema_changed));
-	if (p_schema.is_valid()) {
-		schema = p_schema;
-	} else {
-		schema.instantiate();
+	if (schema.is_valid()) {
+		schema->disconnect_changed(callable_mp(this, &DataTable::_schema_changed));
 	}
-	schema->connect_changed(callable_mp(this, &DataTable::_schema_changed));
+	schema = p_schema;
+	if (schema.is_valid()) {
+		schema->connect_changed(callable_mp(this, &DataTable::_schema_changed));
+	}
 	_schema_changed();
 }
 
@@ -761,6 +769,11 @@ void DataTable::sort_rows(int p_column, SortOrder p_order) {
 }
 
 Ref<DataValidation> DataTable::validate(const Ref<DataValidationOptions> &p_options) const {
+	if (schema.is_null()) {
+		Ref<DataValidation> result;
+		result.instantiate();
+		return result;
+	}
 	return schema->validate(to_records(), p_options);
 }
 
@@ -954,7 +967,7 @@ void DataTable::_set_data(const Array &p_data) {
 // of a copy must not change the original. A schema saved in a file stays shared.
 Ref<Resource> DataTable::_duplicate(const DuplicateParams &p_params) const {
 	Ref<DataTable> copy = Resource::_duplicate(p_params);
-	if (copy.is_valid() && copy->schema == schema && schema->is_built_in()) {
+	if (copy.is_valid() && schema.is_valid() && copy->schema == schema && schema->is_built_in()) {
 		copy->set_schema(schema->duplicate(true));
 	}
 	return copy;
@@ -1021,6 +1034,4 @@ void DataTable::_bind_methods() {
 }
 
 DataTable::DataTable() {
-	schema.instantiate();
-	schema->connect_changed(callable_mp(this, &DataTable::_schema_changed));
 }

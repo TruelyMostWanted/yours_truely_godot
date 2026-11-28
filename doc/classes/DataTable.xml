@@ -34,7 +34,7 @@
 		[/csharp]
 		[/codeblocks]
 		[b]Signals:[/b] every change emits one of [signal cells_changed], [signal rows_inserted], [signal rows_removed] or [signal columns_changed], and then [signal Resource.changed]. A view connects to the specific signals to update only what changed.
-		[b]Columns and schema:[/b] the table creates its own [member schema]; assign a saved [DataSchema] to share the columns between tables. Changing the schema directly (adding, removing or retyping a [DataField]) updates the table: cells follow their field, or a field of the same name.
+		[b]Columns and schema:[/b] a new table has no [member schema] ([code]null[/code]); the first [method add_column] creates the table's own schema. Assign a saved [DataSchema] to share the columns between tables. Changing the schema directly (adding, removing or retyping a [DataField]) updates the table: cells follow their field, or a field of the same name.
 		[b]Other storage:[/b] by default the cells live in memory. A script, a GDExtension or an engine subclass can override [method _get_row_count], [method _get_cell], [method _has_cell], [method _set_cell], [method _erase_cell], [method _insert_rows], [method _remove_rows], [method _insert_column] and [method _remove_column] to expose the data of another source, such as a file or a database, without copying it. Override all of them; the columns still come from [member schema].
 		[b]Conversion:[/b] [method create_from_records] and [method to_records] convert from and to an [Array] of [Dictionary] records (JSON, YAML, TOML), [method create_from_csv] and [method to_csv] from and to a [CSV] resource.
 	</description>
@@ -310,7 +310,7 @@
 	</methods>
 	<members>
 		<member name="schema" type="DataSchema" setter="set_schema" getter="get_schema">
-			The columns of the table: one [DataField] per column, in column order. The table creates its own schema; assign a saved [DataSchema] to share the columns between tables. When a schema is assigned, the cells of each column follow the field of the same name. Setting [code]null[/code] gives the table a new empty schema.
+			The columns of the table: one [DataField] per column, in column order. [code]null[/code] in a new table: the first [method add_column] (or [method create_from_records], [method create_from_csv]) creates the table's own schema, which is copied with the table by [method Resource.duplicate]. Assign a saved [DataSchema] to share the columns between tables. When a schema is assigned, the cells of each column follow the field of the same name. Setting [code]null[/code] removes all columns.
 		</member>
 	</members>
 	<signals>

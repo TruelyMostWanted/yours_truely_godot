@@ -59,8 +59,12 @@ static Ref<DataTable> make_units() {
 TEST_CASE("[DataTable] Columns come from the schema") {
 	Ref<DataTable> table;
 	table.instantiate();
-	CHECK(table->get_schema().is_valid());
+	// No schema until the first column (the property default is null).
+	CHECK(table->get_schema().is_null());
+	CHECK(table->get_column_count() == 0);
+	CHECK(table->validate()->is_valid());
 	table->add_column("id", Variant::INT);
+	CHECK(table->get_schema().is_valid());
 	table->add_column("any");
 	table->add_column("name", Variant::STRING, 1);
 	CHECK(table->get_column_count() == 3);
@@ -87,6 +91,14 @@ TEST_CASE("[DataTable] Columns come from the schema") {
 	ERR_PRINT_ON;
 	CHECK(table->get_column_count() == 2);
 	CHECK(table->get_column_name(1) == StringName("value"));
+
+	// null removes all columns; the next column creates a new schema.
+	table->set_schema(Ref<DataSchema>());
+	CHECK(table->get_schema().is_null());
+	CHECK(table->get_column_count() == 0);
+	table->add_column("id", Variant::INT);
+	CHECK(table->get_schema().is_valid());
+	CHECK(table->get_column_count() == 1);
 }
 
 TEST_CASE("[DataTable] Rows, cells and absent cells") {
