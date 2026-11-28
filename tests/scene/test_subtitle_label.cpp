@@ -34,6 +34,7 @@ TEST_FORCE_LINK(test_subtitle_label)
 
 #ifndef ADVANCED_GUI_DISABLED
 
+#include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/object/message_queue.h"
 #include "core/string/translation_server.h"
@@ -226,6 +227,77 @@ TEST_CASE("[SceneTree][SubtitleLabel] A locale change of the subtitles channel t
 	domain->remove_translation(german);
 	translation_server->set_locale(locale);
 }
+
+TEST_CASE("[SceneTree][SubtitleLabel] Speaker names are translated in the subtitles domain with the context speaker") {
+	TranslationServer *translation_server = TranslationServer::get_singleton();
+	Ref<Translation> german;
+	german.instantiate();
+	german->set_locale("de");
+	german->add_message("Anna", "Annchen", "speaker");
+	const Ref<TranslationDomain> domain = translation_server->get_or_add_domain("subtitles");
+	domain->add_translation(german);
+	const String locale = translation_server->get_locale();
+	translation_server->set_locale("en");
+
+	Ref<Subtitle> subtitle;
+	subtitle.instantiate();
+	subtitle->add_segment(make_segment(0.0, 1.0, "Hello", "Anna"));
+	Ref<SubtitleSegment> segment = subtitle->get_segment(0);
+	SubtitleServer *server = SubtitleServer::get_singleton();
+	CHECK(server->get_display_speaker(subtitle, segment) == "Anna"); // auto_translate is off.
+	subtitle->set_auto_translate(true);
+	CHECK(server->get_display_speaker(subtitle, segment) == "Anna"); // No English entry.
+
+	Window *root = SceneTree::get_singleton()->get_root().ptr();
+	SubtitlePlayer *player = memnew(SubtitlePlayer);
+	player->set_subtitle(subtitle);
+	root->add_child(player);
+	SubtitleLabel *label = memnew(SubtitleLabel);
+	label->set_follow_accessibility_settings(false);
+	root->add_child(label);
+	label->set_player(label->get_path_to(player));
+	player->play(0.5);
+	CHECK(label->get_text() == sized(label, "Anna: Hello"));
+
+	translation_server->set_locale_for("subtitles", "de");
+	CHECK(server->get_display_speaker(subtitle, segment) == "Annchen");
+	CHECK(label->get_text() == sized(label, "Annchen: Hello"));
+	translation_server->clear_locale_for("subtitles");
+
+	memdelete(label);
+	memdelete(player);
+	domain->remove_translation(german);
+	translation_server->set_locale(locale);
+}
+
+#ifdef TOOLS_ENABLED
+TEST_CASE("[SceneTree][SubtitleLabel] The editor shows a preview line while nothing plays") {
+	Engine *engine = Engine::get_singleton();
+	engine->set_editor_hint(true);
+	Window *root = SceneTree::get_singleton()->get_root().ptr();
+	SubtitleLabel *label = memnew(SubtitleLabel);
+	label->set_follow_accessibility_settings(false);
+	root->add_child(label);
+	CHECK(label->get_text() == sized(label, "Speaker: The subtitle line appears here."));
+	CHECK(label->get_subtitle_text().is_empty()); // The preview is not a real line.
+	CHECK(label->is_visible());
+
+	label->set_preview_speaker("Anna");
+	label->set_preview_text("Hello [there]");
+	CHECK(label->get_text() == sized(label, "Anna: Hello [lb]there]"));
+	TypedDictionary<StringName, Color> colors;
+	colors[StringName("Anna")] = Color(1, 0, 0);
+	label->set_speaker_colors(colors);
+	label->set_show_speaker_names(false);
+	CHECK(label->get_text() == sized(label, "[color=#ff0000ff]Hello [lb]there][/color]"));
+
+	engine->set_editor_hint(false);
+	label->refresh(); // At runtime there is no preview.
+	CHECK(label->get_text().is_empty());
+	CHECK_FALSE(label->is_visible());
+	memdelete(label);
+}
+#endif // TOOLS_ENABLED
 
 TEST_CASE("[SceneTree][SubtitleLabel] Clears the line when the player is freed, keeps one ready on reparent") {
 	Window *root = SceneTree::get_singleton()->get_root().ptr();

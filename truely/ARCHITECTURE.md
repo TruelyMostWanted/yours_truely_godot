@@ -727,7 +727,7 @@ passen bei Größenänderungen erneut an, bis der Nutzer selbst zoomt oder versc
 
 ## 8. Prüfliste für neue Features
 
-Gehört in „Technical notes“ des Feature-Issues, bevor die Umsetzung beginnt:
+Gehört in den „Implementation plan“ des Feature-Issues, bevor die Umsetzung beginnt:
 
 1. **Klassenarten** (Abschnitt 2): Welche Teile sind Resource, Playback, Node, Server, Registry, Editor? Warum ist ein Node nötig?
 2. **Schichten** (Abschnitt 1): Abhängigkeiten nur nach unten; Editor-Teile hinter `TOOLS_ENABLED`; optionale Module geprüft.

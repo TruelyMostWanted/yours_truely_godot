@@ -1,38 +1,79 @@
 name: Refactoring
-description: Restructure existing code without changing its behavior (or with a deliberately listed change).
+description: "Restructure existing code without new features, with the plan for the pull request."
 title: "[Refactoring] "
 labels: ["type: refactoring"]
 body:
-  - type: textarea
-    id: current
+  - type: markdown
     attributes:
-      label: Current state
-      description: How is it built today, and what is the problem with it?
+      value: |
+        Write short, simple and direct: bullet points, no filler, one thread from top to bottom.
+        Link files and lines (`https://github.com/<owner>/<repo>/blob/<commit>/path#L10-L20`).
+        A reader who knows Godot should understand the issue without reading the code.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Describe the problem with the current code"
+      description: "What is hard to read, slow, duplicated or wrong in structure. Link the code."
     validations:
       required: true
 
   - type: textarea
     id: target
     attributes:
-      label: Target state
-      description: How should it look afterwards? Name the new structure, types, folders.
+      label: "Describe the target structure and how it solves the problem"
+      description: "How the code looks afterwards and why it is better."
     validations:
       required: true
 
-  - type: dropdown
+  - type: textarea
+    id: how
+    attributes:
+      label: "Describe how it will look, with code, pseudo-code and/or diagrams"
+      description: "Before and after, class diagram, call flow."
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: "Describe the implementation plan"
+      description: "New files and classes; existing files and methods to change, each linked to its lines. Steps in order. What is hard or unclear, and what was checked already (feasibility)."
+      value: |
+        **Changed**
+        -
+
+        **Steps**
+        1.
+    validations:
+      required: true
+
+  - type: textarea
     id: behavior
     attributes:
-      label: Behavior change
-      options:
-        - None · pure restructuring
-        - Yes · listed under "Target state"
+      label: "Does the behavior or the API change?"
+      description: "For users of GDScript, C# and GDExtension: nothing, or what changes and how it stays compatible (deprecate, do not break)."
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: "Acceptance criteria"
+      description: "Testable conditions. The last five points are fixed."
+      value: |
+        - [ ]
+        - [ ] C++ data structures and API created
+        - [ ] C#/GDScript bindings created and registered
+        - [ ] Documentation written (class reference in `doc/classes/` and wiki page: GDScript, C#, GDExtension)
+        - [ ] Test build on the current platform done (no errors or warnings)
+        - [ ] Tested in the test project (`res://<guide>/`: Example and Test) with a Mono build, in GDScript and in C#
     validations:
       required: true
 
   - type: dropdown
     id: area
     attributes:
-      label: Area
+      label: "Area"
+      description: "Which parts of the project are affected?"
       multiple: true
       options:
         - Core · core/ (Variant, Object, I/O, math)
@@ -48,20 +89,3 @@ body:
         - Docs · doc/ (class reference)
     validations:
       required: true
-
-  - type: textarea
-    id: acceptance
-    attributes:
-      label: Acceptance criteria
-      value: |
-        - [ ] Build succeeds without errors or warnings
-        - [ ] Existing save files and resources still load
-        - [ ]
-    validations:
-      required: true
-
-  - type: textarea
-    id: references
-    attributes:
-      label: References
-      description: Related issues, commits, documents.
