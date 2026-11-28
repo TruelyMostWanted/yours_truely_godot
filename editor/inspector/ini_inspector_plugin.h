@@ -43,8 +43,6 @@ class INIInspectorView : public DataFileInspectorView {
 public:
 	// "N sections, M keys" of INI data (section -> key -> value).
 	virtual String get_summary_text(const Variant &p_data) const override;
-	// Top-level rows are sections.
-	virtual void decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const override;
 
 	INIInspectorView(const Ref<Resource> &p_resource);
 };

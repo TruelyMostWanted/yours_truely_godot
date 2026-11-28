@@ -32,20 +32,14 @@
 
 #include "editor/inspector/data_file_inspector_plugin.h"
 
-// The inspector view of a TOML file: top-level tables and keys in the summary, and a value tree in TOML terms
-// (a Dictionary is a "Table", an Array of Dictionaries an "Array of Tables", as `[[name]]` writes it). Rows at every
-// level are named so: the parsed data does not tell `[server]` from an inline table `{ port = 1 }`, nor `[[unit]]`
-// from an inline array of tables, and TOML calls both kinds tables. The summary counts the top level only.
+// The inspector view of a TOML file: top-level tables and keys in the summary, and the tree of TOMLTreeAdapter
+// in TOML terms ("Table", "Array of Tables"). The summary counts the top level only.
 class TOMLInspectorView : public DataFileInspectorView {
 	GDCLASS(TOMLInspectorView, DataFileInspectorView);
 
 public:
-	// A non-empty Array of Dictionaries only.
-	static bool is_array_of_tables(const Variant &p_value);
-
 	// "N tables, M keys" at the top level of TOML data.
 	virtual String get_summary_text(const Variant &p_data) const override;
-	virtual void decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const override;
 
 	TOMLInspectorView(const Ref<Resource> &p_resource) :
 			DataFileInspectorView(p_resource) {}

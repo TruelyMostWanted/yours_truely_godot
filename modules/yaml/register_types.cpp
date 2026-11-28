@@ -44,6 +44,7 @@
 #include "editor/script/script_editor_plugin.h"
 #include "editor/yaml_inspector_plugin.h"
 #include "editor/yaml_syntax_highlighter.h"
+#include "editor/yaml_tree_adapter.h"
 
 static void _register_yaml_syntax_highlighter() {
 	Ref<EditorYAMLSyntaxHighlighter> highlighter;
@@ -78,6 +79,9 @@ void initialize_yaml_module(ModuleInitializationLevel p_level) {
 	}
 
 	GDREGISTER_CLASS(YAML);
+#ifdef TOOLS_ENABLED
+	DataTreeAdapter::register_adapter("YAML", &YAMLTreeAdapter::create);
+#endif // TOOLS_ENABLED
 
 	resource_loader_yaml.instantiate();
 	ResourceLoader::add_resource_format_loader(resource_loader_yaml);

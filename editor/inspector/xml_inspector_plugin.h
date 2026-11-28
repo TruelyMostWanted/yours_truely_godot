@@ -41,13 +41,9 @@ class XMLInspectorView : public DataFileInspectorView {
 public:
 	// "Root element <tag>, N child nodes" of XML data (the root element).
 	virtual String get_summary_text(const Variant &p_data) const override;
-	// The root element as the only top-level node.
-	virtual Variant get_tree_value(const Variant &p_data) const override;
 
 	XMLInspectorView(const Ref<Resource> &p_resource) :
-			DataFileInspectorView(p_resource) {
-		xml = true;
-	}
+			DataFileInspectorView(p_resource) {}
 };
 
 class EditorInspectorPluginXML : public EditorInspectorPluginDataFile {

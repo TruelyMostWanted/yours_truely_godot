@@ -34,8 +34,8 @@
 
 class YAML;
 
-// The inspector view of a YAML file: the value tree of `data`; a file with several documents ("---") shows every
-// document as a top-level row "Document N" of type "Document" and their number in the summary.
+// The inspector view of a YAML file: the tree of YAMLTreeAdapter; a file with several documents ("---") shows
+// every document as a top-level row "Document N" of type "Document" and their number in the summary.
 class YAMLInspectorView : public DataFileInspectorView {
 	GDCLASS(YAMLInspectorView, DataFileInspectorView);
 
@@ -44,10 +44,6 @@ class YAMLInspectorView : public DataFileInspectorView {
 public:
 	// "N documents" with several documents, else the type and size of `data`.
 	virtual String get_summary_text(const Variant &p_data) const override;
-	// `data`, or with several documents an Array of all documents.
-	virtual Variant get_tree_value(const Variant &p_data) const override;
-	// With several documents, a top-level row is a document.
-	virtual void decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const override;
 
 	YAMLInspectorView(const Ref<Resource> &p_resource) :
 			DataFileInspectorView(p_resource) {}

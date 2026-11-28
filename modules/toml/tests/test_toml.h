@@ -44,6 +44,7 @@
 
 #ifdef TOOLS_ENABLED
 #include "../editor/toml_inspector_plugin.h"
+#include "../editor/toml_tree_adapter.h"
 #endif
 
 namespace TestTOML {
@@ -643,21 +644,57 @@ TEST_CASE("[SceneTree][TOMLInspectorView] Tables in TOML terms") {
 	REQUIRE(view != nullptr);
 	CHECK(view->get_summary_text(toml->get_data()) == "2 tables, 1 key");
 
-	LocalVector<DataFileTreeAdapter::Entry> rows;
-	DataFileTreeAdapter::get_children(view->get_tree_value(toml->get_data()), false, 0, -1, rows);
+	// The view shows the tree of the TOML adapter.
+	const Ref<DataTreeAdapter> adapter = view->get_adapter();
+	REQUIRE(Object::cast_to<TOMLTreeAdapter>(adapter.ptr()) != nullptr);
+	LocalVector<DataTreeAdapter::Entry> rows;
+	adapter->get_children(PackedStringArray(), 0, -1, rows);
 	REQUIRE(rows.size() == 3);
-	for (DataFileTreeAdapter::Entry &row : rows) {
-		view->decorate_row(row, true);
-	}
 	CHECK(rows[0].key == "title");
 	CHECK(rows[0].type == "String");
 	CHECK(rows[1].type == "Table");
 	CHECK(rows[1].value == "1 key");
 	CHECK(rows[2].type == "Array of Tables");
+	CHECK(rows[2].kind == DataTreeAdapter::NODE_KIND_INDEXED);
 
-	CHECK_FALSE(TOMLInspectorView::is_array_of_tables(Array()));
-	CHECK_FALSE(TOMLInspectorView::is_array_of_tables(Array({ 1, 2 })));
+	CHECK_FALSE(TOMLTreeAdapter::is_array_of_tables(Array()));
+	CHECK_FALSE(TOMLTreeAdapter::is_array_of_tables(Array({ 1, 2 })));
 	memdelete(view);
+}
+
+TEST_CASE("[TOML][DataTreeAdapter] Paths and edits through the TOML API") {
+	Ref<TOML> toml;
+	toml.instantiate();
+	REQUIRE(toml->parse("title = \"Game\"\n\n[server]\nport = 8080\n\n[[unit]]\nname = \"knight\"\n\n[[unit]]\nname = \"archer\"\n") == OK);
+	const Ref<DataTreeAdapter> adapter = DataTreeAdapter::create_for(toml);
+	REQUIRE(Object::cast_to<TOMLTreeAdapter>(adapter.ptr()) != nullptr);
+
+	// Tables are named, an array of tables is indexed; TOML dotted keys as path text.
+	CHECK(adapter->get_kind(PackedStringArray({ "server" })) == DataTreeAdapter::NODE_KIND_NAMED);
+	CHECK(adapter->get_value(PackedStringArray({ "unit", "1", "name" })) == Variant("archer"));
+	CHECK(adapter->format_path(PackedStringArray({ "unit", "1", "name" })) == "unit[1].name");
+	CHECK(adapter->format_path(PackedStringArray({ "server", "host name" })) == "server.\"host name\"");
+	CHECK(adapter->get_value_types(PackedStringArray()).has(Variant::INT));
+
+	// In tables: TOML.set_value() and erase_table_key().
+	CHECK(adapter->set_value(PackedStringArray({ "server", "port" }), 9090) == OK);
+	CHECK(int(toml->get_value("server", "port")) == 9090);
+	CHECK(adapter->set_value(PackedStringArray({ "server", "port" }), Variant()) == ERR_INVALID_PARAMETER);
+	CHECK(adapter->add_value(PackedStringArray({ "server" }), "host", "localhost") == OK);
+	CHECK(adapter->add_value(PackedStringArray({ "server" }), "host", "again") == ERR_ALREADY_EXISTS);
+	CHECK(String(toml->get_value("server", "host")) == "localhost");
+	CHECK(adapter->remove(PackedStringArray({ "server", "host" })) == OK);
+	CHECK_FALSE(toml->has_table_key("server", "host"));
+
+	// Inside an array of tables: through `data`; the text is encoded again.
+	CHECK(adapter->set_value(PackedStringArray({ "unit", "0", "name" }), "paladin") == OK);
+	CHECK(adapter->get_value(PackedStringArray({ "unit", "0", "name" })) == Variant("paladin"));
+	CHECK(adapter->move(PackedStringArray({ "unit", "1" }), 0) == OK);
+	CHECK(adapter->get_value(PackedStringArray({ "unit", "0", "name" })) == Variant("archer"));
+	CHECK(adapter->get_value(PackedStringArray({ "unit", "1", "name" })) == Variant("paladin"));
+	CHECK(adapter->remove(PackedStringArray({ "server" })) == OK);
+	CHECK_FALSE(toml->has_table("server"));
+	CHECK(toml->encode_to_text().contains("paladin"));
 }
 #endif // TOOLS_ENABLED
 
