@@ -34,7 +34,6 @@
 #include "core/io/data_schema.h"
 #include "core/io/json.h"
 #include "core/io/text_data_format.h"
-#include "core/io/xml_format.h"
 #include "core/object/callable_mp.h"
 #include "editor/data/dataset_editor.h"
 #include "editor/editor_interface.h"
@@ -66,165 +65,11 @@ enum {
 	COLUMN_VALUE,
 };
 
-// Metadata of a tree item: column 0 holds its Variant, column 1 its child index in the parent's value.
+// Metadata of a tree item: column 0 holds its path (DataTreeAdapter), column 1 its child index in the parent.
 // A placeholder child (not filled yet) has index -1, a "more" item -1 - (index of the next child).
 static constexpr int PLACEHOLDER_INDEX = -1;
 
-// DataFileTreeAdapter
-
-DataFileTreeAdapter::Entry DataFileTreeAdapter::make_entry(const String &p_key, const Variant &p_value, bool p_xml) {
-	Entry entry;
-	entry.key = p_key;
-	entry.data = p_value;
-	entry.child_count = get_child_count(p_value, p_xml);
-	if (p_xml && p_value.get_type() == Variant::DICTIONARY) {
-		const Dictionary element = p_value;
-		entry.key = String(element.get(XML::KEY_NAME, String()));
-		entry.type = "Element";
-		entry.value = String(element.get(XML::KEY_TEXT, String()));
-		if (entry.value.is_empty()) {
-			const Dictionary attributes = element.get(XML::KEY_ATTRIBUTES, Dictionary());
-			PackedStringArray parts;
-			for (const KeyValue<Variant, Variant> &kv : attributes) {
-				parts.push_back(vformat("%s=\"%s\"", kv.key, kv.value));
-			}
-			entry.value = String(" ").join(parts);
-		}
-	} else if (p_value.get_type() == Variant::DICTIONARY) {
-		entry.type = "Dictionary";
-		entry.value = vformat(TTRN("%d key", "%d keys", entry.child_count), entry.child_count);
-		return entry;
-	} else if (p_value.is_array()) {
-		entry.type = Variant::get_type_name(p_value.get_type());
-		entry.value = vformat(TTRN("%d item", "%d items", entry.child_count), entry.child_count);
-		return entry;
-	} else {
-		entry.type = p_xml ? (p_key.begins_with("@") ? "Attribute" : "Text") : Variant::get_type_name(p_value.get_type());
-		entry.value = p_value.get_type() == Variant::NIL ? String("null") : String(p_value);
-	}
-	entry.value = entry.value.replace("\n", " ");
-	if (entry.value.length() > MAX_VALUE_LENGTH) {
-		entry.value = entry.value.left(MAX_VALUE_LENGTH) + "...";
-	}
-	return entry;
-}
-
-int DataFileTreeAdapter::get_child_count(const Variant &p_value, bool p_xml) {
-	if (p_value.get_type() == Variant::DICTIONARY) {
-		const Dictionary dictionary = p_value;
-		if (!p_xml) {
-			return dictionary.size();
-		}
-		const Dictionary attributes = dictionary.get(XML::KEY_ATTRIBUTES, Dictionary());
-		const Array nodes = dictionary.get(XML::KEY_CHILDREN, Array());
-		return attributes.size() + nodes.size();
-	}
-	if (p_value.is_array()) {
-		const Array array = p_value;
-		return array.size();
-	}
-	return 0;
-}
-
-void DataFileTreeAdapter::get_children(const Variant &p_value, bool p_xml, int p_from, int p_count, LocalVector<Entry> &r_entries) {
-	const int total = get_child_count(p_value, p_xml);
-	const int end = p_count < 0 ? total : MIN(total, p_from + p_count);
-	if (p_from < 0 || p_from >= end) {
-		return;
-	}
-
-	Array nodes; // Array items, or the child nodes of an XML element after its attributes.
-	int node_offset = 0;
-	if (p_value.get_type() == Variant::DICTIONARY) {
-		const Dictionary dictionary = p_value;
-		const Dictionary pairs = p_xml ? Dictionary(dictionary.get(XML::KEY_ATTRIBUTES, Dictionary())) : dictionary;
-		int index = 0;
-		for (const KeyValue<Variant, Variant> &kv : pairs) {
-			if (index >= end) {
-				break;
-			}
-			if (index >= p_from) {
-				r_entries.push_back(make_entry(p_xml ? "@" + String(kv.key) : String(kv.key), kv.value, p_xml));
-			}
-			index++;
-		}
-		if (!p_xml) {
-			return;
-		}
-		nodes = dictionary.get(XML::KEY_CHILDREN, Array());
-		node_offset = pairs.size();
-	} else {
-		nodes = p_value;
-	}
-
-	for (int i = MAX(p_from, node_offset); i < end; i++) {
-		const Variant &node = nodes[i - node_offset];
-		// In XML, element nodes take their tag as key; other nodes are text.
-		const String key = p_xml ? (node.get_type() == Variant::DICTIONARY ? String() : String("#text")) : itos(i);
-		r_entries.push_back(make_entry(key, node, p_xml));
-	}
-}
-
-static void _find_in(const Variant &p_value, bool p_xml, const String &p_query, int p_max, DataFileTreeAdapter::DecorateFunc p_decorate, const void *p_context, PackedInt32Array &r_path, Vector<PackedInt32Array> &r_paths) {
-	LocalVector<DataFileTreeAdapter::Entry> entries;
-	DataFileTreeAdapter::get_children(p_value, p_xml, 0, -1, entries);
-	const bool top_level = r_path.is_empty();
-	for (uint32_t i = 0; i < entries.size() && r_paths.size() < p_max; i++) {
-		DataFileTreeAdapter::Entry &entry = entries[i];
-		if (p_decorate) {
-			p_decorate(p_context, entry, top_level);
-		}
-		// Only scalar values: containers show their size, XML elements repeat their text and attributes.
-		const bool scalar = !entry.data.is_array() && entry.data.get_type() != Variant::DICTIONARY;
-		r_path.push_back(i);
-		if (entry.key.findn(p_query) != -1 || (scalar && entry.value.findn(p_query) != -1)) {
-			r_paths.push_back(r_path);
-		}
-		if (entry.child_count > 0) {
-			_find_in(entry.data, p_xml, p_query, p_max, p_decorate, p_context, r_path, r_paths);
-		}
-		r_path.resize(r_path.size() - 1);
-	}
-}
-
-Vector<PackedInt32Array> DataFileTreeAdapter::find(const Variant &p_root, bool p_xml, const String &p_query, int p_max, DecorateFunc p_decorate, const void *p_context) {
-	Vector<PackedInt32Array> paths;
-	if (!p_query.is_empty() && p_max > 0) {
-		PackedInt32Array path;
-		_find_in(p_root, p_xml, p_query, p_max, p_decorate, p_context, path, paths);
-	}
-	return paths;
-}
-
-String DataFileTreeAdapter::make_child_path(const String &p_parent_path, const String &p_key, int p_index, bool p_xml) {
-	const String segment = p_xml ? itos(p_index) : p_key.replace("\\", "\\\\").replace("/", "\\/");
-	return p_parent_path + "/" + segment;
-}
-
-PackedInt32Array DataFileTreeAdapter::get_column_chars(const PackedStringArray &p_header, const Array &p_rows, int p_max_rows, int p_max_columns, int p_max_chars) {
-	const int row_count = MIN(p_rows.size(), p_max_rows);
-	int column_count = p_header.size();
-	for (int i = 0; i < row_count; i++) {
-		column_count = MAX(column_count, (int)PackedStringArray(p_rows[i]).size());
-	}
-
-	PackedInt32Array chars;
-	chars.resize_initialized(MIN(column_count, p_max_columns));
-	int *w = chars.ptrw();
-	for (int i = -1; i < row_count; i++) {
-		const PackedStringArray cells = i < 0 ? p_header : PackedStringArray(p_rows[i]);
-		for (int column = 0; column < MIN(cells.size(), chars.size()); column++) {
-			w[column] = MIN(MAX(w[column], cells[column].length()), p_max_chars);
-		}
-	}
-	return chars;
-}
-
 // DataFileInspectorView
-
-void DataFileInspectorView::_decorate_found(const void *p_context, DataFileTreeAdapter::Entry &r_entry, bool p_top_level) {
-	static_cast<const DataFileInspectorView *>(p_context)->decorate_row(r_entry, p_top_level);
-}
 
 String DataFileInspectorView::_get_parsed_text() const {
 	const Ref<JSON> json = resource;
@@ -235,17 +80,18 @@ String DataFileInspectorView::_get_parsed_text() const {
 	return format.is_valid() ? format->get_parsed_text() : String();
 }
 
-TreeItem *DataFileInspectorView::_create_item(TreeItem *p_parent, const DataFileTreeAdapter::Entry &p_entry, int p_index, bool p_lazy) {
-	DataFileTreeAdapter::Entry entry = p_entry;
-	decorate_row(entry, p_parent == tree->get_root());
+TreeItem *DataFileInspectorView::_create_item(TreeItem *p_parent, const DataTreeAdapter::Entry &p_entry, int p_index, bool p_lazy) {
+	PackedStringArray path = p_parent->get_metadata(0);
+	path.push_back(p_entry.segment);
 	TreeItem *item = tree->create_item(p_parent);
-	item->set_text(COLUMN_KEY, entry.key);
-	item->set_text(COLUMN_TYPE, entry.type);
-	item->set_text(COLUMN_VALUE, entry.value);
-	item->set_tooltip_text(COLUMN_VALUE, entry.value);
-	item->set_metadata(0, entry.data);
+	item->set_text(COLUMN_KEY, p_entry.key);
+	item->set_text(COLUMN_TYPE, p_entry.type);
+	item->set_text(COLUMN_VALUE, p_entry.value);
+	item->set_tooltip_text(COLUMN_KEY, adapter->format_path(path));
+	item->set_tooltip_text(COLUMN_VALUE, p_entry.value);
+	item->set_metadata(0, path);
 	item->set_metadata(1, p_index);
-	if (p_lazy && entry.child_count > 0) {
+	if (p_lazy && p_entry.child_count > 0) {
 		tree->create_item(item)->set_metadata(1, PLACEHOLDER_INDEX);
 		item->set_collapsed(true);
 	}
@@ -253,29 +99,26 @@ TreeItem *DataFileInspectorView::_create_item(TreeItem *p_parent, const DataFile
 }
 
 void DataFileInspectorView::_fill(TreeItem *p_parent, int p_from) {
-	const Variant value = p_parent->get_metadata(0);
-	LocalVector<DataFileTreeAdapter::Entry> entries;
-	DataFileTreeAdapter::get_children(value, xml, p_from, CHILD_PAGE, entries);
+	const PackedStringArray path = p_parent->get_metadata(0);
+	LocalVector<DataTreeAdapter::Entry> entries;
+	adapter->get_children(path, p_from, CHILD_PAGE, entries);
 	for (uint32_t i = 0; i < entries.size(); i++) {
 		_create_item(p_parent, entries[i], p_from + (int)i, true);
 	}
 	const int next = p_from + (int)entries.size();
-	const int rest = DataFileTreeAdapter::get_child_count(value, xml) - next;
+	const int rest = adapter->get_child_count(path) - next;
 	if (rest > 0) {
 		TreeItem *more = tree->create_item(p_parent);
 		more->set_text(COLUMN_KEY, vformat(TTR("%d more..."), rest));
 		more->set_tooltip_text(COLUMN_KEY, vformat(TTR("Select to show the next %d."), MIN(rest, CHILD_PAGE)));
+		more->set_metadata(0, path);
 		more->set_metadata(1, -1 - next);
 	}
 }
 
 String DataFileInspectorView::_get_item_path(TreeItem *p_item) const {
-	// Tree items: the key in column 0 and the child index in metadata 1. CSV rows: the row number in column 0.
-	TreeItem *parent = p_item->get_parent();
-	if (parent == nullptr) {
-		return String();
-	}
-	return DataFileTreeAdapter::make_child_path(_get_item_path(parent), p_item->get_text(0), p_item->get_metadata(1), xml);
+	// A path stays the same when the data is parsed again (keys, not row numbers).
+	return DataTreeAdapter::join_path(p_item->get_metadata(0));
 }
 
 void DataFileInspectorView::_collect_expanded(TreeItem *p_item, HashSet<String> &r_paths) const {
@@ -308,8 +151,16 @@ void DataFileInspectorView::_restore(TreeItem *p_item, const HashSet<String> &p_
 }
 
 String DataFileInspectorView::get_summary_text(const Variant &p_data) const {
-	const DataFileTreeAdapter::Entry entry = DataFileTreeAdapter::make_entry(String(), p_data, false);
-	return entry.data.is_array() || entry.data.get_type() == Variant::DICTIONARY ? entry.type + ", " + entry.value : entry.type;
+	const String type = Variant::get_type_name(p_data.get_type());
+	if (p_data.get_type() == Variant::DICTIONARY) {
+		const int count = Dictionary(p_data).size();
+		return type + ", " + vformat(TTRN("%d key", "%d keys", count), count);
+	}
+	if (p_data.get_type() == Variant::ARRAY) {
+		const int count = Array(p_data).size();
+		return type + ", " + vformat(TTRN("%d item", "%d items", count), count);
+	}
+	return type;
 }
 
 int DataFileInspectorView::_get_row_height() const {
@@ -319,7 +170,6 @@ int DataFileInspectorView::_get_row_height() const {
 }
 
 void DataFileInspectorView::_update_preview(const Variant &p_data) {
-	tree_value = get_tree_value(p_data);
 	_update_tree();
 }
 
@@ -337,28 +187,33 @@ void DataFileInspectorView::_update_tree() {
 	}
 	tree->set_column_custom_minimum_width(COLUMN_TYPE, (int)(90 * EDSCALE));
 	tree->set_column_expand_ratio(COLUMN_VALUE, 2);
+	if (adapter.is_null()) {
+		more_label->hide();
+		return;
+	}
 
 	TreeItem *root = tree->create_item();
-	root->set_metadata(0, tree_value);
+	root->set_metadata(0, PackedStringArray());
 	const String query = search->get_text().strip_edges();
 	if (query.is_empty()) {
 		_fill(root, 0);
 		more_label->hide();
 	} else {
 		// Only the matching paths, expanded; clearing the search goes back to the lazy tree.
-		const Vector<PackedInt32Array> paths = DataFileTreeAdapter::find(tree_value, xml, query, MAX_MATCHES, &_decorate_found, this);
+		const Vector<PackedStringArray> paths = adapter->find(query, MAX_MATCHES);
 		const Color match_color = get_theme_color(SNAME("accent_color"), EditorStringName(Editor));
-		for (const PackedInt32Array &path : paths) {
+		for (const PackedStringArray &path : paths) {
 			TreeItem *item = root;
+			PackedStringArray prefix;
 			for (int i = 0; i < path.size() && item; i++) {
+				prefix.push_back(path[i]);
 				TreeItem *child = item->get_first_child();
-				while (child && int(child->get_metadata(1)) != path[i]) {
+				while (child && PackedStringArray(child->get_metadata(0)) != prefix) {
 					child = child->get_next();
 				}
 				if (child == nullptr) {
-					LocalVector<DataFileTreeAdapter::Entry> entries;
-					DataFileTreeAdapter::get_children(item->get_metadata(0), xml, path[i], 1, entries);
-					child = entries.is_empty() ? nullptr : _create_item(item, entries[0], path[i], false);
+					DataTreeAdapter::Entry entry;
+					child = adapter->get_entry(prefix, entry) ? _create_item(item, entry, 0, false) : nullptr;
 				}
 				item = child;
 			}
@@ -370,7 +225,7 @@ void DataFileInspectorView::_update_tree() {
 		more_label->show();
 	}
 
-	const int top_level_count = MIN(DataFileTreeAdapter::get_child_count(tree_value, xml), CHILD_PAGE);
+	const int top_level_count = MIN(adapter->get_child_count(PackedStringArray()), CHILD_PAGE);
 	tree->set_custom_minimum_size(Size2(0, (CLAMP(top_level_count, 3, 14) + 2) * _get_row_height()));
 }
 
@@ -426,6 +281,7 @@ void DataFileInspectorView::_update() {
 	}
 
 	const Variant file_data = format.is_valid() ? format->get_data() : json->get_data();
+	adapter = DataTreeAdapter::create_for(resource); // Again: a CSV gets a tree when its header becomes Path,Key,Value.
 	summary_label->set_text(vformat("%s: %s", resource->get_class(), get_summary_text(file_data)));
 	_update_dataset_button();
 	_update_dock_buttons();
@@ -583,6 +439,7 @@ void DataFileInspectorView::_notification(int p_what) {
 
 DataFileInspectorView::DataFileInspectorView(const Ref<Resource> &p_resource) {
 	resource = p_resource;
+	adapter = DataTreeAdapter::create_for(resource);
 
 	summary_label = memnew(Label);
 	summary_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);

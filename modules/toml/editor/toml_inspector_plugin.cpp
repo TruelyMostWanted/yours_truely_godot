@@ -30,44 +30,20 @@
 
 #include "toml_inspector_plugin.h"
 
-#include "../toml.h"
+#include "toml_tree_adapter.h"
 
 // TOMLInspectorView
-
-bool TOMLInspectorView::is_array_of_tables(const Variant &p_value) {
-	if (!p_value.is_array()) {
-		return false;
-	}
-	const Array items = p_value;
-	if (items.is_empty()) {
-		return false;
-	}
-	for (const Variant &item : items) {
-		if (item.get_type() != Variant::DICTIONARY) {
-			return false;
-		}
-	}
-	return true;
-}
 
 String TOMLInspectorView::get_summary_text(const Variant &p_data) const {
 	const Dictionary root = p_data;
 	int table_count = 0;
 	for (const KeyValue<Variant, Variant> &kv : root) {
-		if (kv.value.get_type() == Variant::DICTIONARY || is_array_of_tables(kv.value)) {
+		if (kv.value.get_type() == Variant::DICTIONARY || TOMLTreeAdapter::is_array_of_tables(kv.value)) {
 			table_count++;
 		}
 	}
 	const int key_count = root.size() - table_count;
 	return vformat(TTRN("%d table", "%d tables", table_count), table_count) + ", " + vformat(TTRN("%d key", "%d keys", key_count), key_count);
-}
-
-void TOMLInspectorView::decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const {
-	if (r_entry.data.get_type() == Variant::DICTIONARY) {
-		r_entry.type = TTR("Table");
-	} else if (is_array_of_tables(r_entry.data)) {
-		r_entry.type = TTR("Array of Tables");
-	}
 }
 
 // EditorInspectorPluginTOML

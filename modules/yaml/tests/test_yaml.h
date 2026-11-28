@@ -44,6 +44,7 @@
 
 #ifdef TOOLS_ENABLED
 #include "../editor/yaml_inspector_plugin.h"
+#include "../editor/yaml_tree_adapter.h"
 #endif
 
 namespace TestYAML {
@@ -736,34 +737,70 @@ TEST_CASE("[SceneTree][YAMLInspectorView] Documents") {
 	REQUIRE(view != nullptr);
 
 	// One document: the tree of `data`, rows named by their keys.
-	CHECK(view->get_tree_value(yaml->get_data()) == yaml->get_data());
+	const Ref<DataTreeAdapter> adapter = view->get_adapter();
+	REQUIRE(Object::cast_to<YAMLTreeAdapter>(adapter.ptr()) != nullptr);
 	CHECK(view->get_summary_text(yaml->get_data()) == "Dictionary, 2 keys");
-	LocalVector<DataFileTreeAdapter::Entry> rows;
-	DataFileTreeAdapter::get_children(view->get_tree_value(yaml->get_data()), false, 0, -1, rows);
+	LocalVector<DataTreeAdapter::Entry> rows;
+	adapter->get_children(PackedStringArray(), 0, -1, rows);
 	REQUIRE(rows.size() == 2);
-	view->decorate_row(rows[0], true);
 	CHECK(rows[0].key == "name");
 
 	// Several documents: one top-level row "Document N" of type Document per document.
 	REQUIRE(yaml->parse("name: knight\n---\nname: archer\n---\n- 1\n") == OK);
 	CHECK(view->get_summary_text(yaml->get_data()) == "3 documents");
-	const Array documents = view->get_tree_value(yaml->get_data());
-	REQUIRE(documents.size() == 3);
-	CHECK(Dictionary(documents[1])["name"] == "archer");
+	CHECK(adapter->get_value(PackedStringArray({ "1", "name" })) == Variant("archer"));
 	rows.clear();
-	DataFileTreeAdapter::get_children(documents, false, 0, -1, rows);
+	adapter->get_children(PackedStringArray(), 0, -1, rows);
 	REQUIRE(rows.size() == 3);
-	for (DataFileTreeAdapter::Entry &row : rows) {
-		view->decorate_row(row, true);
-	}
 	CHECK(rows[0].key == "Document 1");
 	CHECK(rows[2].key == "Document 3");
 	CHECK(rows[2].type == "Document");
-	CHECK(rows[2].value == "1 item");
-	DataFileTreeAdapter::Entry entry = DataFileTreeAdapter::make_entry("name", "knight", false);
-	view->decorate_row(entry, false);
-	CHECK(entry.key == "name");
+	CHECK(rows[2].value == "[1]"); // An Array of scalars is one value.
+	rows.clear();
+	adapter->get_children(PackedStringArray({ "0" }), 0, -1, rows);
+	REQUIRE(rows.size() == 1);
+	CHECK(rows[0].key == "name");
 	memdelete(view);
+}
+
+TEST_CASE("[YAML][DataTreeAdapter] Paths and edits through the YAML API") {
+	Ref<YAML> yaml;
+	yaml.instantiate();
+	REQUIRE(yaml->parse("units:\n  - name: knight\n    hp: 100\n  - name: archer\n    hp: 60\na/b: 1\n") == OK);
+	const Ref<DataTreeAdapter> adapter = DataTreeAdapter::create_for(yaml);
+	REQUIRE(Object::cast_to<YAMLTreeAdapter>(adapter.ptr()) != nullptr);
+
+	// The adapter's paths are the YAML.get_value() paths, "~1" for "/".
+	const PackedStringArray hp = PackedStringArray({ "units", "1", "hp" });
+	CHECK(adapter->format_path(hp) == "units/1/hp");
+	CHECK(adapter->get_value(hp) == yaml->get_value("units/1/hp"));
+	CHECK(adapter->format_path(PackedStringArray({ "a/b" })) == "a~1b");
+	CHECK(adapter->get_value(DataTreeAdapter::split_path("a~1b")) == Variant(1));
+	CHECK(adapter->get_kind(PackedStringArray({ "units" })) == DataTreeAdapter::NODE_KIND_INDEXED);
+
+	CHECK(adapter->set_value(hp, 75) == OK);
+	CHECK(int(yaml->get_value("units/1/hp")) == 75);
+	CHECK(adapter->add_value(PackedStringArray({ "units", "0" }), "class", "warrior") == OK);
+	CHECK(String(yaml->get_value("units/0/class")) == "warrior");
+	CHECK(adapter->rename(PackedStringArray({ "units", "0", "class" }), "role") == OK);
+	CHECK(yaml->has_value("units/0/role"));
+	CHECK(adapter->add_container(PackedStringArray(), "spawn", DataTreeAdapter::NODE_KIND_NAMED) == OK);
+	CHECK(yaml->get_value("spawn").get_type() == Variant::DICTIONARY);
+	CHECK(adapter->remove(PackedStringArray({ "units", "0" })) == OK);
+	CHECK(String(yaml->get_value("units/0/name")) == "archer");
+
+	// Several documents: documents are added and removed, the first one is edited with its paths.
+	REQUIRE(yaml->parse("name: knight\n---\nname: archer\n") == OK);
+	CHECK(adapter->format_path(PackedStringArray({ "1", "name" })) == "name (document 2)");
+	CHECK(adapter->set_value(PackedStringArray({ "0", "name" }), "paladin") == OK);
+	CHECK(String(yaml->get_value("name")) == "paladin");
+	CHECK(adapter->set_value(PackedStringArray({ "1", "name" }), "ranger") == OK);
+	CHECK(Dictionary(yaml->get_document(1))["name"] == "ranger");
+	CHECK(adapter->add_value(PackedStringArray(), String(), Dictionary()) == OK);
+	CHECK(yaml->get_document_count() == 3);
+	CHECK(adapter->remove(PackedStringArray({ "2" })) == OK);
+	CHECK(yaml->get_document_count() == 2);
+	CHECK(adapter->move(PackedStringArray({ "1" }), 0) == ERR_UNAVAILABLE);
 }
 #endif // TOOLS_ENABLED
 
