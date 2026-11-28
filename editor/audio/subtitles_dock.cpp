@@ -1077,7 +1077,7 @@ void SubtitlesDock::_timeline_gui_input(const Ref<InputEvent> &p_event) {
 			// The edge nearer to a snap target wins.
 			const double start_snap = _snap(drag_old_start + delta, true, radius, selected) - (drag_old_start + delta);
 			const double end_snap = _snap(drag_old_end + delta, false, radius, selected) - (drag_old_end + delta);
-			delta += start_snap == 0.0 || (end_snap != 0.0 && Math::abs(end_snap) < Math::abs(start_snap)) ? end_snap : start_snap;
+			delta += (start_snap == 0.0 || (end_snap != 0.0 && Math::abs(end_snap) < Math::abs(start_snap))) ? end_snap : start_snap;
 			delta = CLAMP(delta, -drag_old_start, MAX(0.0, length - drag_old_end));
 			segment->set_start_time(drag_old_start + delta);
 			segment->set_end_time(drag_old_end + delta);
