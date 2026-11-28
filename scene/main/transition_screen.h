@@ -30,6 +30,10 @@
 
 #pragma once
 
+#include "core/io/load_progress.h"
+#ifndef THREADS_ENABLED
+#include "core/io/resource_database.h"
+#endif
 #include "core/variant/binder_common.h"
 #include "scene/main/canvas_layer.h"
 #include "scene/resources/packed_scene.h"
@@ -54,6 +58,12 @@ public:
 		STATE_COMPLETED,
 	};
 
+	enum Template {
+		TEMPLATE_SPLASH,
+		TEMPLATE_LOADING,
+		TEMPLATE_MAX,
+	};
+
 private:
 	String next_scene;
 	double min_duration = 0.0;
@@ -63,10 +73,25 @@ private:
 	bool auto_finish = true;
 	bool free_current_scene_before_loading = false;
 	Ref<Preloads> preload_assets;
+	NodePath animation_player;
+	StringName intro_animation;
+	StringName outro_animation;
 
 	State state = STATE_IDLE;
 	String loading_path; // Resolved `next_scene`; empty when no scene change happens.
 	bool preload_pending = false;
+	bool preload_tracked = false; // The asset progress counts into `progress`.
+	float scene_progress = 0.0f;
+	float assets_progress = 0.0f;
+	int assets_loaded = 0;
+	int assets_total = 0;
+#ifndef THREADS_ENABLED
+	ResourceDatabase::PreloadSteps assets_steps; // Without threads: the files to load, one per frame.
+#endif
+	bool animation_done = false; // The animation player reported the end of the animation of the current phase.
+	double animation_length = -1.0; // Seconds of the animation that drives the current fade; negative: built-in fade.
+	bool intro_animated = false;
+	bool outro_started = false;
 	bool request_pending = false; // Loading starts on the frame after the screen became fully visible.
 	bool load_requested = false; // A threaded load token is held until `load_threaded_get()`.
 	Error load_error = OK;
@@ -80,17 +105,27 @@ private:
 	void _process_transition(double p_delta);
 	void _set_fade(float p_fade);
 	void _set_progress(float p_progress);
+	void _update_progress();
+	double _play_animation(const StringName &p_animation);
+	void _animation_finished(const StringName &p_animation);
+	double _get_phase_ratio(double p_duration) const;
 	void _request_loading();
 	void _poll_loading();
 	void _fail_loading(Error p_error);
 	void _change_scene();
+	void _preload_progress(const Ref<Preloads> &p_preloads, const Ref<LoadProgress> &p_progress);
+#ifndef THREADS_ENABLED
+	void _step_assets();
+#endif
 	void _preload_finished(const Ref<Preloads> &p_preloads, int p_error);
 
 	static inline ObjectID running_screen; // The transition in progress (one at a time).
 	static TransitionScreen *_get_running_screen();
 
 protected:
+	void _get_load_counts(int &r_loaded, int &r_total) const;
 	void _notification(int p_what);
+	void _validate_property(PropertyInfo &p_property) const;
 	static void _bind_methods();
 	virtual void input(const Ref<InputEvent> &p_event) override;
 
@@ -117,12 +152,22 @@ public:
 	bool is_free_current_scene_before_loading() const;
 	void set_preload_assets(const Ref<Preloads> &p_assets);
 	Ref<Preloads> get_preload_assets() const;
+	void set_animation_player(const NodePath &p_path);
+	NodePath get_animation_player() const;
+	void set_intro_animation(const StringName &p_animation);
+	StringName get_intro_animation() const;
+	void set_outro_animation(const StringName &p_animation);
+	StringName get_outro_animation() const;
 
 	void finish();
 	State get_state() const;
 	float get_progress() const;
+	Ref<LoadProgress> get_load_progress() const;
 	float get_fade() const;
 	Error get_load_error() const;
+
+	// A ready-made splash or loading screen scene (#440), built from the project settings (logo, background color).
+	static Ref<PackedScene> create_template(Template p_template);
 
 	// Backs `SceneTree::change_scene_with_transition()`.
 	static Error change_scene_with_transition(SceneTree *p_tree, const String &p_path, const Ref<PackedScene> &p_transition_scene);
@@ -137,11 +182,15 @@ class LoadingScreen : public TransitionScreen {
 
 	NodePath progress_bar;
 	NodePath tip_label;
+	NodePath count_label;
+	String count_format = "%d / %d";
 	PackedStringArray tips;
 	double tip_interval = 5.0;
 
 	int tip_index = -1;
 	double tip_time = 0.0;
+	int shown_loaded = -1; // The counts the label shows (-1: none yet).
+	int shown_total = -1;
 
 	void _show_tip(int p_index);
 
@@ -149,12 +198,17 @@ protected:
 	void _notification(int p_what);
 	static void _bind_methods();
 	virtual void _progress_changed(float p_progress) override;
+	void _update_count();
 
 public:
 	void set_progress_bar(const NodePath &p_path);
 	NodePath get_progress_bar() const;
 	void set_tip_label(const NodePath &p_path);
 	NodePath get_tip_label() const;
+	void set_count_label(const NodePath &p_path);
+	NodePath get_count_label() const;
+	void set_count_format(const String &p_format);
+	String get_count_format() const;
 	void set_tips(const PackedStringArray &p_tips);
 	PackedStringArray get_tips() const;
 	void set_tip_interval(double p_seconds);
@@ -177,3 +231,4 @@ public:
 };
 
 VARIANT_ENUM_CAST(TransitionScreen::State);
+VARIANT_ENUM_CAST(TransitionScreen::Template);

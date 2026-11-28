@@ -13,7 +13,7 @@ Die Regeln für Code und Issues stehen in [`CONVENTIONS.md`](CONVENTIONS.md). Ku
 - Jeder Teil eines Features hat die passende Klassenart (Resource, Playback, Node, Server, Registry, Editor), gebunden in `_bind_methods()`; siehe [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - C# bekommt die API über den generierten Glue: `TTSServer` (statisch) und `TTSServerInstance`.
 - Jedes Feature hat Klassenreferenz, Wiki-Seite und Checks in GDScript und C# (Mono-Build).
-- Issues auf Englisch, nach Vorlage, mit „Feasibility to check“ und den fünf Abnahmepunkten.
+- Issues auf Englisch, nach Vorlage, im Godot-Proposal-Stil (Problem, Vorschlag, Umsetzungsplan; `CONVENTIONS.md` 3) und den fünf Abnahmepunkten.
 
 ---
 
@@ -71,6 +71,8 @@ Wenn lokal alles grün ist: **Squash-Merge** nach `truely-godot-engine`, also ei
 gh pr create --base truely-godot-engine --head 03-feature-path-prefix-server --fill
 gh pr merge --squash              # OHNE --delete-branch
 ```
+
+Die Beschreibung folgt der Vorlage [`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_REQUEST_TEMPLATE.md) (Layout aus `CONVENTIONS.md` 3.3).
 
 - **Den Feature-Branch niemals löschen**, weder auf GitHub noch lokal. Er bleibt immer bestehen.
 - **Truely-Version** ([`version.txt`](version.txt), SemVer): wird **einmal pro Release** erhöht, nicht in jedem Feature-Branch (sonst Konflikte zwischen parallelen Branches). Wer nach `truely-godot-engine` merged, vergleicht `truely/version.txt` mit dem letzten Release-Tag (`git describe --tags --match 'truely-v*' --abbrev=0`): Ist sie dort noch gleich, wird sie direkt danach in einem eigenen Commit erhöht (`Raise the Truely version to 0.2.0 (#N)`), **MINOR** für ein Feature, **PATCH** nur für Fehlerbehebungen (MINOR schließt PATCH ein: ist schon MINOR erhöht, nichts tun; war nur PATCH erhöht und kommt ein Feature dazu, auf MINOR umstellen). **MAJOR** bei einem neuen Godot-Major/Minor (4.8 → 4.9) oder inkompatiblen API-Änderungen. `release.ps1` und der Release-Workflow brechen ab, wenn der Tag der Version schon existiert.
@@ -213,7 +215,7 @@ Vorbild: [Custom resource format loaders](https://docs.godotengine.org/en/4.4/co
 | References | Links zu den Klassenreferenz-Seiten, zum Issue und zum Feature-Ordner in godot-custom-build-project |
 | What is not covered | Was das Feature bewusst nicht kann (aus „Out of scope“) |
 | Schritte | eine Überschrift pro Schritt der Benutzung (z. B. „Registering a prefix“, „Loading a resource“), jeweils mit GDScript, C# und C++ (GDExtension) |
-| Limitations | was nicht geht, Plattform-Unterschiede (aus „Feasibility to check“) |
+| Limitations | was nicht geht, Plattform-Unterschiede (aus dem „Implementation plan“) |
 
 - **Wiki-Seiten sind immer Pflicht**, für jedes umgesetzte Issue, auch für Refactorings ohne neue API (Guide-Seite und Klassenreferenz jeder betroffenen Klasse). Entscheidungen aus Concept-Issues stehen auf der Seite `Design-Decisions`.
 - **Inhaltsverzeichnis:** Jede Seite hat unter dem Titelblock ein nummeriertes Inhaltsverzeichnis (1, 1.1, 1.2, …) mit Sprungmarken zu den Überschriften. Es wird erzeugt, nicht von Hand geschrieben: `python truely/wiki-toc.py <wiki-ordner>` vor jedem Push des Wikis (ersetzt ein vorhandenes Verzeichnis zwischen `<!-- toc -->` und `<!-- /toc -->`).

@@ -284,3 +284,10 @@ Gemergt (2026-11-24, nach dem Limit-Reset): #87, #17, #70, #83, #89, #78, #51 (+
 - Wiki lokal `P:/wt/022/wiki` (`a0c6196`, `c204099`), Push zum Release. Offen: Timer-Messungen (#379), Screenshot Locale-Option-Button.
 - #419: Agent fixt arm32 (pip/zstandard), Android digest-mismatch, Web `PAGE_SIZE`; neuer Dry-Run.
 - Danach: int11 (alles), Gesamtlauf Testprojekt, PRs je Feature (squash) in Reihenfolge 423 → 421 → 397 → 414 → 323/324 → 325 → 379 → 399 → 424, Testprojekt-PR, CI auf releases, `version.txt` 0.2.2, `release.ps1`, Post aktualisieren.
+- **Falle (2026-11-28):** Versions-Commit mit `[skip ci]` → `release.ps1` pusht, aber die CI auf `truely-godot-engine-releases` startet nicht. Versions-Commits ohne `[skip ci]`, sonst `gh workflow run runner.yml --ref truely-godot-engine-releases`.
+
+### Stand (2026-11-28, ~12:00) — 0.2.2 veröffentlicht
+- **Release:** `truely-v0.2.2-godot4.8-rc1` auf `a9982b1`, Pre-release, 8 Dateien (Win/Linux/macOS je std + dotnet, beide Template-Pakete), kuratierte Notes `P:/wt/rel-body-022.md`. Volle CI 46124960705 grün, Release-Lauf 46130271820 grün.
+- **Offen (Besitzer):** alter Post `truely-v0.2.1-godot4.8-rc1` steht noch (Löschen per Auto-Mode verweigert). Notes sagen „replaces 0.2.1“ → Post löschen (Tag behalten) oder stehen lassen. Archiv der 0.2.1-Notes: `gh release view truely-v0.2.1-godot4.8-rc1`.
+- **CI-Fallen:** `cxxflags=-fno-sanitize=…` wirkt nicht (detect.py hängt Sanitizer-Flags danach an) → Sanitizer-Job mit `optimize=debug` (#449). TSan-Race beim Lade-Fortschritt (Upstream) unterdrückt. Einzelner Workflow testbar: `gh workflow run linux_builds.yml --ref <branch>`.
+- **#419:** Agent `ab1d0c15aa0d36a3b` macht Dry-Run + Smoke-Check; danach Merge und Zusatz-Builds per `truely_release_update.yml` an den 0.2.2-Post.

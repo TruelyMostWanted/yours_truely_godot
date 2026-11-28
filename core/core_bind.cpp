@@ -233,6 +233,21 @@ Dictionary ResourceLoader::load_manifest(const Ref<FilesManifest> &p_manifest, C
 	return p_manifest->load_resources(ResourceFormatLoader::CacheMode(p_cache_mode));
 }
 
+Ref<LoadProgress> ResourceLoader::load_threaded_get_manifest_status(const Ref<FilesManifest> &p_manifest) {
+	ERR_FAIL_COND_V(p_manifest.is_null(), Ref<LoadProgress>());
+	return p_manifest->load_threaded_get_status_resources();
+}
+
+Ref<LoadProgress> ResourceLoader::load_threaded_step_manifest(const Ref<FilesManifest> &p_manifest) {
+	ERR_FAIL_COND_V(p_manifest.is_null(), Ref<LoadProgress>());
+	return p_manifest->load_threaded_step_resources();
+}
+
+Dictionary ResourceLoader::load_threaded_get_manifest(const Ref<FilesManifest> &p_manifest) {
+	ERR_FAIL_COND_V(p_manifest.is_null(), Dictionary());
+	return p_manifest->load_threaded_get_resources();
+}
+
 Error ResourceLoader::load_threaded_request_manifest(const Ref<FilesManifest> &p_manifest, bool p_use_sub_threads, CacheMode p_cache_mode) {
 	ERR_FAIL_COND_V(p_manifest.is_null(), ERR_INVALID_PARAMETER);
 	return p_manifest->load_threaded_request_resources(p_use_sub_threads, ResourceFormatLoader::CacheMode(p_cache_mode));
@@ -372,6 +387,9 @@ void ResourceLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_manifest_paths", "manifest"), &ResourceLoader::get_manifest_paths);
 	ClassDB::bind_method(D_METHOD("load_manifest", "manifest", "cache_mode"), &ResourceLoader::load_manifest, DEFVAL(CACHE_MODE_REUSE));
 	ClassDB::bind_method(D_METHOD("load_threaded_request_manifest", "manifest", "use_sub_threads", "cache_mode"), &ResourceLoader::load_threaded_request_manifest, DEFVAL(false), DEFVAL(CACHE_MODE_REUSE));
+	ClassDB::bind_method(D_METHOD("load_threaded_get_manifest_status", "manifest"), &ResourceLoader::load_threaded_get_manifest_status);
+	ClassDB::bind_method(D_METHOD("load_threaded_step_manifest", "manifest"), &ResourceLoader::load_threaded_step_manifest);
+	ClassDB::bind_method(D_METHOD("load_threaded_get_manifest", "manifest"), &ResourceLoader::load_threaded_get_manifest);
 	ClassDB::bind_method(D_METHOD("register_extension_loader", "extension", "loader", "type", "at_front"), &ResourceLoader::register_extension_loader, DEFVAL(StringName("Resource")), DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("unregister_extension_loader", "extension"), &ResourceLoader::unregister_extension_loader);
 	ClassDB::bind_method(D_METHOD("has_extension_loader", "extension"), &ResourceLoader::has_extension_loader);

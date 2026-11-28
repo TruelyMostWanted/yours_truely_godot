@@ -6,6 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
+        Write short, simple and direct: bullet points, no filler, one thread from top to bottom. Link files and lines.
         One issue per playtest session. Every finding that needs work gets its own bug, feature or refactoring
         issue, linked under "Findings". The playtest issue closes when all findings are linked.
 

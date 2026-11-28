@@ -65,7 +65,7 @@ public:
 };
 
 // Missing keys per locale, the validation result and "Save POT..." above the catalog's properties (#346).
-// Editing happens in the CSV Table dock, which opens with the catalog.
+// Editing happens in the Localization Table dock, which opens with the catalog.
 class EditorInspectorPluginLocalizationCatalog : public EditorInspectorPlugin {
 	GDCLASS(EditorInspectorPluginLocalizationCatalog, EditorInspectorPlugin);
 

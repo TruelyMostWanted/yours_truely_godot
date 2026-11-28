@@ -42,7 +42,7 @@ bool ResourceImporterCSVDataset::is_translation_file(const String &p_path) {
 	Ref<DataValidation> issues;
 	issues.instantiate();
 	CSV::check_translation_header(file->get_csv_line(), header, issues.ptr());
-	return header.has_known_language;
+	return header.is_translation_table();
 }
 
 void ResourceImporterCSVDataset::get_recognized_extensions(List<String> *p_extensions) const {

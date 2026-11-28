@@ -1,61 +1,67 @@
 name: Bug report
-description: Something does not work as expected.
+description: "Report a bug in this fork's engine features."
 title: "[Bug] "
 labels: ["type: bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting! A good bug report can be reproduced by someone else in under five minutes.
+        Write short, simple and direct: bullet points, no filler, one thread from top to bottom.
+        Link files and lines (`https://github.com/<owner>/<repo>/blob/<commit>/path#L10-L20`).
+        A reader who knows Godot should understand the issue without reading the code.
+
+  - type: input
+    id: version
+    attributes:
+      label: "Tested versions"
+      description: "Release tag or commit where it happens, and where it does not."
+      placeholder: "Reproducible in truely-v0.2.2 (a9982b1), not in truely-v0.2.1"
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: "System information"
+      description: "OS, renderer, .NET or standard build."
+      placeholder: "Windows 11, Vulkan Forward+, .NET build"
 
   - type: textarea
     id: description
     attributes:
-      label: Description
-      description: What is wrong? One or two sentences.
+      label: "Issue description"
+      description: "What happens, what should happen instead. Screenshots and logs here."
     validations:
       required: true
 
   - type: textarea
     id: steps
     attributes:
-      label: Steps to reproduce
+      label: "Steps to reproduce"
+      description: "Numbered, from a new project if possible."
       value: |
         1.
-        2.
-        3.
     validations:
       required: true
 
   - type: textarea
-    id: expected
+    id: cause
     attributes:
-      label: Expected behavior
-    validations:
-      required: true
+      label: "Cause and fix"
+      description: "If known: the code at fault (linked) and the planned fix."
 
   - type: textarea
-    id: actual
+    id: logs
     attributes:
-      label: Actual behavior
-    validations:
-      required: true
-
-  - type: dropdown
-    id: severity
-    attributes:
-      label: Severity
-      options:
-        - Blocker · crash, data loss or no workaround
-        - Major · feature unusable, workaround exists
-        - Minor · cosmetic or small inconvenience
-    validations:
-      required: true
+      label: "Logs"
+      description: "Output, stack traces."
+      render: text
 
   - type: dropdown
     id: area
     attributes:
-      label: Area
+      label: "Area"
+      description: "Which parts of the project are affected?"
       multiple: true
       options:
         - Core · core/ (Variant, Object, I/O, math)
@@ -71,26 +77,3 @@ body:
         - Docs · doc/ (class reference)
     validations:
       required: true
-
-  - type: input
-    id: commit
-    attributes:
-      label: Commit / version
-      description: Output of `git rev-parse --short HEAD` or the release tag.
-      placeholder: 3d26b11
-    validations:
-      required: true
-
-  - type: input
-    id: environment
-    attributes:
-      label: Environment
-      description: Godot version, .NET version, operating system.
-      placeholder: Godot 4.8 (mono) @ commit abc1234, .NET 10, Windows 11, Vulkan Forward+
-
-  - type: textarea
-    id: logs
-    attributes:
-      label: Logs and screenshots
-      description: Godot output, stack traces, screenshots. Logs are formatted as code automatically.
-      render: text

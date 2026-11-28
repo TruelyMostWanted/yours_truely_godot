@@ -12,7 +12,7 @@
 		5. It fades out over the new scene for [member fade_out_duration] seconds, emits [signal finished] and frees itself.
 		The easiest way to start a transition is [method SceneTree.change_scene_with_transition]. A transition screen can also be the current scene (opened with [method SceneTree.change_scene_to_file], or the boot splash): it detaches itself from [member SceneTree.current_scene] before the change and stays for the fade-out. A screen added inside the current scene moves itself to the tree root before it starts, so it is not removed with the old scene. With an empty [member next_scene] it only fades in, waits and fades out, as an overlay.
 		Only one transition runs at a time: [method SceneTree.change_scene_with_transition] returns [constant ERR_BUSY] while one runs, and a second screen added to the tree prints an error and frees itself without doing anything. From the start of the fade-in until the scene has changed, the screen marks every input event as handled in [method Node._input], so the covered scene (and the screen's own [Control]s) receive no input; skip inputs still work.
-		The fade modulates the whole layer (all children together, their own [member CanvasItem.modulate] stays untouched). Override [method _update_fade] for custom intro and outro animations. In the editor the screen is shown fully visible and does nothing. It runs while the tree is paused ([member Node.process_mode] is [constant Node.PROCESS_MODE_ALWAYS]). Durations are in scaled time: with an [member Engine.time_scale] of [code]0.0[/code] the transition does not advance.
+		The fade modulates the whole layer (all children together, their own [member CanvasItem.modulate] stays untouched). Override [method _update_fade] for code-driven animations, or set [member animation_player], [member intro_animation] and [member outro_animation] to play an [AnimationPlayer] animation instead of the fade (each of the two phases separately; the built-in fade stays the default). In the editor the screen is shown fully visible and does nothing. It runs while the tree is paused ([member Node.process_mode] is [constant Node.PROCESS_MODE_ALWAYS]). Durations are in scaled time: with an [member Engine.time_scale] of [code]0.0[/code] the transition does not advance.
 		See [LoadingScreen] for a progress bar and tips, and [SplashScreen] for the boot splash.
 		[b]Note:[/b] Without threads (the default Web export) [method ResourceLoader.load_threaded_request] loads on the main thread. The screen therefore starts loading only on the frame after it became fully visible, and the whole load is one blocking step: the game shows the screen's last frame (animations, tips and the progress bar stop) until the scene is loaded, and [method get_progress] jumps from [code]0.0[/code] to [code]1.0[/code]. For a boot splash this means the splash is drawn first, then the main scene loads, then [member min_duration] runs.
 		[b]Note:[/b] A [CanvasModulate] inside the screen replaces the fade, as both set the modulate of the layer's canvas.
@@ -40,6 +40,25 @@
 				[/codeblocks]
 			</description>
 		</method>
+		<method name="create_template" qualifiers="static">
+			<return type="PackedScene" />
+			<param index="0" name="template" type="int" enum="TransitionScreen.Template" />
+			<description>
+				Returns a ready-made screen scene to start from, or [code]null[/code] if it cannot be built. All nodes are owned by the root, so it saves as a normal scene. It reads the project settings [code]application/boot_splash/bg_color[/code], [code]application/boot_splash/image[/code], [code]application/config/icon[/code] and [code]application/config/name[/code]; the text color follows the brightness of the background. The scene has a [ColorRect] [code]Background[/code] in the color of [code]application/boot_splash/bg_color[/code], the project logo ([code]application/boot_splash/image[/code], else [code]application/config/icon[/code], else the project name as a [Label]), and an [AnimationPlayer] with the animations [code]intro[/code] and [code]outro[/code] set as [member intro_animation] and [member outro_animation] (the background and the content fade).
+				[constant TEMPLATE_SPLASH] has a [SplashScreen] root. [constant TEMPLATE_LOADING] has a [LoadingScreen] root with a tip label, a [ProgressBar] and a count label, all set up.
+				In the editor, [b]Project &gt; Tools &gt; Create Splash Screen Scene...[/b] and [b]Create Loading Screen Scene...[/b] save these scenes to a file you choose and open them; a splash scene can be set as [member ProjectSettings.application/boot_splash/scene] right away.
+				[codeblocks]
+				[gdscript]
+				var scene = TransitionScreen.create_template(TransitionScreen.TEMPLATE_LOADING)
+				ResourceSaver.save(scene, "res://loading_screen.tscn")
+				[/gdscript]
+				[csharp]
+				var scene = TransitionScreen.CreateTemplate(TransitionScreen.Template.Loading);
+				ResourceSaver.Save(scene, "res://loading_screen.tscn");
+				[/csharp]
+				[/codeblocks]
+			</description>
+		</method>
 		<method name="finish">
 			<return type="void" />
 			<description>
@@ -58,10 +77,16 @@
 				Returns [constant OK], or the error of the last failed load or scene change (see [signal load_failed]).
 			</description>
 		</method>
+		<method name="get_load_progress" qualifiers="const">
+			<return type="LoadProgress" />
+			<description>
+				Returns the files loaded and the total as a [LoadProgress], the same model as [signal ResourceDatabase.preload_progress]: [member next_scene] counts as one file next to the files of [member preload_assets] (its [member Preloads.paths] and the files of its [member Preloads.manifests]). The ratio is [method get_progress].
+			</description>
+		</method>
 		<method name="get_progress" qualifiers="const">
 			<return type="float" />
 			<description>
-				Returns the load progress of [member next_scene] from [code]0.0[/code] to [code]1.0[/code]. It is [code]1.0[/code] only when the scene and [member preload_assets] are loaded.
+				Returns the load progress from [code]0.0[/code] to [code]1.0[/code]: the progress of all files together, each file weighing the same ([member next_scene] is one file next to the files of [member preload_assets]), so it agrees with the counts of [method get_load_progress]. It is [code]1.0[/code] only when everything is loaded.
 			</description>
 		</method>
 		<method name="get_state" qualifiers="const">
@@ -72,6 +97,9 @@
 		</method>
 	</methods>
 	<members>
+		<member name="animation_player" type="NodePath" setter="set_animation_player" getter="get_animation_player" default="NodePath(&quot;&quot;)">
+			Path to the [AnimationPlayer] that plays [member intro_animation] and [member outro_animation], relative to the screen (usually a child of it). An animation that cannot report its end runs as the built-in fade instead (a warning is printed): an animation without length, a looping one, a player with speed [code]0[/code], a player that does not process (paused or disabled) or one in manual callback mode. A phase ends when the player emits [signal AnimationMixer.animation_finished]; if that never comes, it ends one second after the animation length.
+		</member>
 		<member name="auto_finish" type="bool" setter="set_auto_finish" getter="is_auto_finish" default="true">
 			If [code]true[/code], the scene changes as soon as everything is loaded and [member min_duration] has passed. If [code]false[/code], the screen waits for [method finish] (or a skip input if [member skippable] is [code]true[/code]).
 		</member>
@@ -84,6 +112,9 @@
 		<member name="free_current_scene_before_loading" type="bool" setter="set_free_current_scene_before_loading" getter="is_free_current_scene_before_loading" default="false">
 			If [code]true[/code], the current scene is freed as soon as the screen is fully visible, and [member next_scene] starts loading on the next frame. The old and the new scene are never in memory together, which helps on mobile and Web; loading starts a little later. If loading then fails, no scene is left in the tree.
 		</member>
+		<member name="intro_animation" type="StringName" setter="set_intro_animation" getter="get_intro_animation" default="&amp;&quot;&quot;">
+			Name of the animation of [member animation_player] that replaces the built-in fade-in. The fade-in is over when the animation has played ([member fade_in_duration] is ignored; the length is divided by the player's [member AnimationPlayer.speed_scale]). The animation must cover the screen, because the covered scene changes right after it. While it plays the layer is opaque and [method _update_fade] is not called; [method get_fade] runs from [code]0.0[/code] to [code]1.0[/code] with the animation. If empty, or the animation or the player is not found (a warning is printed), the built-in fade runs.
+		</member>
 		<member name="layer" type="int" setter="set_layer" getter="get_layer" overrides="CanvasLayer" default="100" />
 		<member name="min_duration" type="float" setter="set_min_duration" getter="get_min_duration" default="0.0">
 			Minimum seconds the screen stays fully visible before the scene changes, even if loading is done earlier.
@@ -91,8 +122,11 @@
 		<member name="next_scene" type="String" setter="set_next_scene" getter="get_next_scene" default="&quot;&quot;">
 			Path or UID of the scene ([code].tscn[/code], [code].scn[/code] or [code].res[/code]) to change to. If empty, no scene change happens: the screen fades in, waits [member min_duration] and fades out. [SplashScreen] uses [member ProjectSettings.application/run/main_scene] instead. A screen never loads its own scene file.
 		</member>
+		<member name="outro_animation" type="StringName" setter="set_outro_animation" getter="get_outro_animation" default="&amp;&quot;&quot;">
+			Name of the animation of [member animation_player] that replaces the built-in fade-out, played after the scene has changed. It must uncover the new scene (slide away, dissolve). The screen is freed when the animation has played ([member fade_out_duration] is ignored); [method get_fade] runs from [code]1.0[/code] to [code]0.0[/code] with it. If empty, or not found, the built-in fade runs (starting opaque, also after an animated intro).
+		</member>
 		<member name="preload_assets" type="Preloads" setter="set_preload_assets" getter="get_preload_assets">
-			Optional assets that are loaded into the [ResourceDatabase] with [method ResourceDatabase.preload_from] while the screen loads [member next_scene]. The scene changes only after [signal ResourceDatabase.preload_finished] for these [Preloads].
+			Optional assets that are loaded into the [ResourceDatabase] with [method ResourceDatabase.preload_from] while the screen loads [member next_scene]. The scene changes only after [signal ResourceDatabase.preload_finished] for these [Preloads]. Their progress ([signal ResourceDatabase.preload_progress]) counts into [method get_progress] with the same weight as the scene. Without thread support the files load one per frame while the screen is drawn.
 		</member>
 		<member name="process_mode" type="int" setter="set_process_mode" getter="get_process_mode" overrides="Node" enum="Node.ProcessMode" default="3" />
 		<member name="skippable" type="bool" setter="set_skippable" getter="is_skippable" default="false">
@@ -151,6 +185,15 @@
 		</constant>
 		<constant name="STATE_COMPLETED" value="5" enum="State">
 			Done; the screen is freed at the end of the frame.
+		</constant>
+		<constant name="TEMPLATE_SPLASH" value="0" enum="Template">
+			A splash screen: [SplashScreen] root with the project logo.
+		</constant>
+		<constant name="TEMPLATE_LOADING" value="1" enum="Template">
+			A loading screen: [LoadingScreen] root with the logo, tips, a progress bar and a count label.
+		</constant>
+		<constant name="TEMPLATE_MAX" value="2" enum="Template">
+			Represents the size of the [enum Template] enum.
 		</constant>
 	</constants>
 </class>

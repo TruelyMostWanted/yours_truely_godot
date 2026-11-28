@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSVReader" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Reads a large CSV file row by row.
+	</brief_description>
+	<description>
+		[CSVReader] reads a CSV file ([url=https://www.rfc-editor.org/rfc/rfc4180]RFC 4180[/url], UTF-8) from a file buffer, one row at a time. Memory use is one row and a 64 KiB buffer, not the size of the file, so it suits files that are too large for [CSV], which holds every cell in memory. The syntax is the same as in [CSV]: quoted cells may contain the delimiter, double quotes ([code]""[/code]) and line breaks, blank lines are skipped and a byte order mark is ignored. The delimiter and the header row come from [SerializerOptions] ([member SerializerOptions.csv_delimiter], [member SerializerOptions.csv_headers]); the delimiter must be an ASCII character. Rows are [PackedStringArray]s of text, there is no type guessing.
+		Rows are read in order with [method read_row] or [method read_rows]. [method seek_row] jumps to a row number, for example to show one page of a table: the reader remembers the file position of every 1024th row it has passed, so a jump reads at most 1024 rows after the nearest known position. [method count_rows] reads the whole file once to count the rows, on the calling thread (a full scan for a large file). Rows are counted in an [int]: files are limited to 2^31 rows. Equal column names in the header: [method read_record] keeps the last one.
+		The file is read through [FileAccess], so [code]res://[/code], [code]user://[/code] and packed files work on every platform, including the Web export. Nothing is read in a thread.
+		If a row is invalid (a quoted cell that is not closed, or more cells than the header has columns), the reader stops: [method get_error] returns the error, the read methods return empty results, and [method seek_row] clears the error. Rows before the error are read normally.
+		[codeblocks]
+		[gdscript]
+		var reader = CSVReader.open("user://big.csv")
+		print(reader.get_header()) # ["name", "level"]
+		while true:
+			var row = reader.read_row()
+			if row.is_empty():
+				break # The end of the file, or an error: see reader.get_error().
+			print(row[0])
+
+		# One page of 50 rows, starting at row 100000.
+		reader.seek_row(100000)
+		var page = reader.read_rows(50)
+		[/gdscript]
+		[csharp]
+		var reader = CsvReader.Open("user://big.csv");
+		GD.Print(reader.GetHeader()); // ["name", "level"]
+		while (true)
+		{
+			var row = reader.ReadRow();
+			if (row.Length == 0)
+			{
+				break; // The end of the file, or an error: see reader.GetError().
+			}
+			GD.Print(row[0]);
+		}
+
+		// One page of 50 rows, starting at row 100000.
+		reader.SeekRow(100000);
+		var page = reader.ReadRows(50);
+		[/csharp]
+		[/codeblocks]
+		[b]Note:[/b] A [CSVReader] should be used by one thread at a time.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="close">
+			<return type="void" />
+			<description>
+				Closes the file. The reader is at its end afterwards; reading and [method seek_row] fail with an error. The file is also closed when the last reference to the reader goes away.
+			</description>
+		</method>
+		<method name="count_rows">
+			<return type="int" />
+			<description>
+				Returns the number of data rows (without the header row). The first call reads on to the end of the file and returns to the current row; later calls return the stored number. Returns [code]-1[/code] if the file has an invalid row (see [method get_error]) or the reader is closed.
+			</description>
+		</method>
+		<method name="get_error" qualifiers="const">
+			<return type="int" enum="Error" />
+			<description>
+				Returns [constant OK], or the error of the invalid row that stopped the reader ([constant ERR_PARSE_ERROR]). See [method get_error_message].
+			</description>
+		</method>
+		<method name="get_error_line" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the 1-based line of the error, or [code]0[/code] if there is none.
+			</description>
+		</method>
+		<method name="get_error_message" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the message of the error, for example [code]Line 7: the quoted cell is not closed.[/code], or an empty string if there is none.
+			</description>
+		</method>
+		<method name="get_header" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the column names of the header row, or an empty array if [member SerializerOptions.csv_headers] is off or the file is empty.
+			</description>
+		</method>
+		<method name="get_line" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the 1-based line of the next row. A quoted cell with line breaks makes it larger than the row number.
+			</description>
+		</method>
+		<method name="get_path" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the path the reader was opened with.
+			</description>
+		</method>
+		<method name="get_row_index" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the index (from [code]0[/code], without the header row) of the row that the next [method read_row] returns.
+			</description>
+		</method>
+		<method name="is_eof" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] once a read has found no more rows (or the reader is closed). It stays [code]false[/code] after the last row has been read, until the next read; test the result of [method read_row] for an empty array.
+			</description>
+		</method>
+		<method name="is_open" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] until [method close] is called.
+			</description>
+		</method>
+		<method name="open" qualifiers="static">
+			<return type="CSVReader" />
+			<param index="0" name="path" type="String" />
+			<param index="1" name="options" type="SerializerOptions" default="null" />
+			<description>
+				Opens the file at [param path] and reads the header row (with [member SerializerOptions.csv_headers]). [param options] [code]null[/code] uses the project settings. Returns [code]null[/code] and prints an error if the file cannot be opened, the header row is invalid (a quoted cell that is not closed) or the delimiter is not an ASCII character.
+			</description>
+		</method>
+		<method name="read_record">
+			<return type="Dictionary" />
+			<description>
+				Reads the next row as a [Dictionary] keyed by the column names of [method get_header]; cells missing at the end of a short row are empty strings. Returns an empty [Dictionary] at the end of the file or on an error, and prints an error if there is no header.
+			</description>
+		</method>
+		<method name="read_row">
+			<return type="PackedStringArray" />
+			<description>
+				Reads the next row. Returns an empty array at the end of the file or on an error (a row always has at least one cell).
+			</description>
+		</method>
+		<method name="read_rows">
+			<return type="Array" />
+			<param index="0" name="count" type="int" />
+			<description>
+				Reads up to [param count] rows as an [Array] of [PackedStringArray]. The rows are all in memory at once: read large files in pages with a bounded [param count]. Fewer are returned at the end of the file or on an error.
+			</description>
+		</method>
+		<method name="seek_row">
+			<return type="int" enum="Error" />
+			<param index="0" name="row" type="int" />
+			<description>
+				Moves to the data row [param row] (from [code]0[/code]; [method read_row] then returns it; [param row] equal to the number of rows is the end of the file and returns [constant OK]) and clears the error. Returns [constant ERR_FILE_EOF] if the file has fewer rows than [param row] (the reader is at the end), [constant ERR_PARSE_ERROR] if a row before it is invalid, and [constant ERR_UNCONFIGURED] if the reader is closed. Moving back, or forward within 1024 rows, is cheap once the reader has passed the row; a first jump far ahead reads every row on the way (without building them).
+			</description>
+		</method>
+		<method name="skip_rows">
+			<return type="int" enum="Error" />
+			<param index="0" name="count" type="int" />
+			<description>
+				Skips [param count] rows without building their cells. Returns [constant OK], [constant ERR_FILE_EOF] if the file ends first, or [constant ERR_PARSE_ERROR].
+			</description>
+		</method>
+	</methods>
+</class>

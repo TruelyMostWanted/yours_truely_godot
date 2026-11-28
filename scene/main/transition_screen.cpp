@@ -38,10 +38,12 @@
 #include "core/io/resource_uid.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "scene/animation/animation_player.h"
 #include "scene/gui/color_rect.h"
 #include "scene/gui/range.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
+#include "scene/resources/animation.h"
 #include "servers/rendering/rendering_server.h"
 
 // TransitionScreen
@@ -120,6 +122,7 @@ void TransitionScreen::_start() {
 	if (loading_path.is_empty() && current == this && !Object::cast_to<SplashScreen>(this)) {
 		WARN_PRINT("TransitionScreen: The current scene is a transition screen without a next scene; no scene follows it.");
 	}
+	animation_length = _play_animation(intro_animation);
 	emit_signal(SNAME("started"));
 #ifdef THREADS_ENABLED
 	if (!free_current_scene_before_loading) {
@@ -139,10 +142,13 @@ void TransitionScreen::_process_transition(double p_delta) {
 
 	if (state == STATE_FADING_IN) {
 		phase_time += p_delta;
-		_set_fade(fade_in_duration > 0.0 ? float(MIN(phase_time / fade_in_duration, 1.0)) : 1.0f);
+		const double duration = animation_length >= 0.0 ? animation_length : fade_in_duration;
+		_set_fade(float(_get_phase_ratio(duration)));
 		if (fade < 1.0f) {
 			return;
 		}
+		intro_animated = animation_length >= 0.0;
+		animation_length = -1.0;
 		state = STATE_LOADING;
 		phase_time = 0.0;
 		p_delta = 0.0;
@@ -183,8 +189,16 @@ void TransitionScreen::_process_transition(double p_delta) {
 	}
 
 	if (state == STATE_FADING_OUT) {
+		if (!outro_started) {
+			outro_started = true;
+			animation_length = _play_animation(outro_animation);
+			if (animation_length < 0.0 && intro_animated) {
+				_set_fade(1.0f); // The intro left the canvas untouched: the built-in fade starts opaque.
+			}
+		}
 		phase_time += p_delta;
-		_set_fade(fade_out_duration > 0.0 ? float(1.0 - MIN(phase_time / fade_out_duration, 1.0)) : 0.0f);
+		const double duration = animation_length >= 0.0 ? animation_length : fade_out_duration;
+		_set_fade(float(1.0 - _get_phase_ratio(duration)));
 		if (fade > 0.0f) {
 			return;
 		}
@@ -198,6 +212,9 @@ void TransitionScreen::_process_transition(double p_delta) {
 
 void TransitionScreen::_set_fade(float p_fade) {
 	fade = p_fade;
+	if (animation_length >= 0.0) {
+		return; // The animation drives the visuals; the canvas stays opaque.
+	}
 	if (!GDVIRTUAL_CALL(_update_fade, fade)) {
 		// The layer's own canvas: every child fades together, their own `modulate` stays untouched.
 		RenderingServer::get_singleton()->canvas_set_modulate(get_canvas(), Color(1, 1, 1, fade));
@@ -213,18 +230,88 @@ void TransitionScreen::_set_progress(float p_progress) {
 	emit_signal(SNAME("progress_changed"), progress);
 }
 
+void TransitionScreen::_update_progress() {
+	// Every file weighs the same (the scene is one file), so the bar agrees with the counts of `get_load_progress()`.
+	float sum = 0.0f;
+	int files = 0;
+	if (!loading_path.is_empty()) {
+		sum += scene_progress;
+		files++;
+	}
+	if (preload_tracked) {
+		sum += assets_progress * float(assets_total);
+		files += assets_total;
+	}
+	_set_progress(files > 0 ? MIN(sum / float(files), 0.99f) : 0.0f); // 1.0 only when everything is loaded.
+}
+
+double TransitionScreen::_play_animation(const StringName &p_animation) {
+	if (p_animation == StringName()) {
+		return -1.0;
+	}
+	AnimationPlayer *player = Object::cast_to<AnimationPlayer>(get_node_or_null(animation_player));
+	if (!player || !player->has_animation(p_animation)) {
+		WARN_PRINT(vformat("TransitionScreen: The animation '%s' is not found in the animation player; the built-in fade runs instead.", String(p_animation)));
+		return -1.0;
+	}
+	// An animation that cannot report its end in time runs as the built-in fade instead of stalling the phase.
+	const Ref<Animation> animation = player->get_animation(p_animation);
+	if (animation->get_length() <= 0.001 || animation->get_loop_mode() != Animation::LOOP_NONE || Math::abs(double(player->get_speed_scale())) <= CMP_EPSILON ||
+			!player->can_process() || player->get_callback_mode_process() == AnimationMixer::ANIMATION_CALLBACK_MODE_PROCESS_MANUAL) {
+		WARN_PRINT(vformat("TransitionScreen: The animation '%s' has no length, loops, or its player does not run (paused, disabled, manual or speed 0); the built-in fade runs instead.", String(p_animation)));
+		return -1.0;
+	}
+	// The animation covers the screen itself: no canvas fade.
+	RenderingServer::get_singleton()->canvas_set_modulate(get_canvas(), Color(1, 1, 1, 1));
+	animation_done = false;
+	const Callable on_finished = callable_mp(this, &TransitionScreen::_animation_finished);
+	if (!player->is_connected(SNAME("animation_finished"), on_finished)) {
+		player->connect(SNAME("animation_finished"), on_finished);
+	}
+	player->play(p_animation);
+	player->advance(0.0); // The first frame is applied before the screen is drawn.
+	return animation->get_length() / Math::abs(double(player->get_speed_scale()));
+}
+
+void TransitionScreen::_animation_finished(const StringName &p_animation) {
+	animation_done = true;
+}
+
+// How far the phase is (0 to 1). An animated phase ends when the animation player reports the end of the animation
+// (its computed length is only the pace). Players that cannot report it are refused in `_play_animation()`; a player
+// that stops reporting anyway ends the phase one second late, only as a safety.
+double TransitionScreen::_get_phase_ratio(double p_duration) const {
+	const double ratio = p_duration > 0.0 ? MIN(phase_time / p_duration, 1.0) : 1.0;
+	if (animation_length >= 0.0 && ratio >= 1.0 && !animation_done && phase_time < p_duration + 1.0) {
+		return 0.999;
+	}
+	return ratio;
+}
+
 void TransitionScreen::_request_loading() {
 	if (preload_assets.is_valid() && ResourceDatabase::get_singleton()) {
+		preload_pending = true;
+		preload_tracked = true;
 		ResourceDatabase *database = ResourceDatabase::get_singleton();
+#ifdef THREADS_ENABLED
 		const Callable on_finished = callable_mp(this, &TransitionScreen::_preload_finished);
 		database->connect(SNAME("preload_finished"), on_finished);
-		preload_pending = true;
+		database->connect(SNAME("preload_progress"), callable_mp(this, &TransitionScreen::_preload_progress));
 		const Error preload_error = database->preload_from(preload_assets);
 		if (preload_error == ERR_INVALID_PARAMETER || preload_error == ERR_UNAVAILABLE) {
 			// Rejected before starting: `preload_finished` will not be emitted.
 			preload_pending = false;
+			preload_tracked = false;
 			database->disconnect(SNAME("preload_finished"), on_finished);
+			database->disconnect(SNAME("preload_progress"), callable_mp(this, &TransitionScreen::_preload_progress));
+		} else {
+			assets_total = database->get_preload_total(preload_assets); // Known before the first event.
 		}
+#else
+		// Collected once, with the type hints of the manifests; loaded one file per frame (see `_step_assets()`).
+		database->begin_preload_steps(preload_assets, assets_steps);
+		assets_total = assets_steps.paths.size();
+#endif
 	}
 	if (loading_path.is_empty()) {
 		return;
@@ -242,19 +329,27 @@ void TransitionScreen::_poll_loading() {
 #ifdef THREADS_ENABLED
 		float load_progress = 0.0f;
 		if (ResourceLoader::load_threaded_get_status(loading_path, &load_progress) == ResourceLoader::THREAD_LOAD_IN_PROGRESS) {
-			_set_progress(MIN(load_progress, 0.99f)); // 1.0 only when everything is loaded.
+			scene_progress = load_progress;
+			_update_progress();
 			return;
 		}
 #endif
 		Error err = OK;
 		loaded_scene = ResourceLoader::load_threaded_get(loading_path, &err);
 		load_requested = false;
+		scene_progress = 1.0f;
 		if (loaded_scene.is_null()) {
 			_fail_loading(err != OK ? err : ERR_FILE_UNRECOGNIZED);
 			return;
 		}
 	}
+#ifndef THREADS_ENABLED
 	if (preload_pending) {
+		_step_assets();
+	}
+#endif
+	if (preload_pending) {
+		_update_progress();
 		return;
 	}
 	_set_progress(1.0f);
@@ -270,15 +365,42 @@ void TransitionScreen::_fail_loading(Error p_error) {
 	emit_signal(SNAME("load_failed"), int(p_error));
 }
 
+void TransitionScreen::_preload_progress(const Ref<Preloads> &p_preloads, const Ref<LoadProgress> &p_progress) {
+	if (p_preloads == preload_assets && p_progress.is_valid()) {
+		assets_progress = p_progress->get_ratio();
+		assets_loaded = p_progress->get_loaded_count();
+		assets_total = p_progress->get_total_count();
+	}
+}
+
+#ifndef THREADS_ENABLED
+// Without threads the assets load one file per frame, so the progress advances while the screen is drawn.
+void TransitionScreen::_step_assets() {
+	const bool more = ResourceDatabase::get_singleton()->step_preload(assets_steps);
+	assets_loaded = int(assets_steps.index);
+	assets_progress = assets_steps.paths.is_empty() ? 1.0f : float(assets_steps.index) / float(assets_steps.paths.size());
+	if (!more) {
+		preload_pending = false; // Failed files were reported by the loader; `preload_finished` carries the first error.
+		assets_progress = 1.0f;
+	}
+}
+#endif
+
 void TransitionScreen::_preload_finished(const Ref<Preloads> &p_preloads, int p_error) {
 	if (p_preloads != preload_assets) {
 		return;
 	}
 	preload_pending = false;
+	assets_progress = 1.0f;
+	assets_loaded = assets_total;
 	ResourceDatabase *database = ResourceDatabase::get_singleton();
 	const Callable on_finished = callable_mp(this, &TransitionScreen::_preload_finished);
 	if (database && database->is_connected(SNAME("preload_finished"), on_finished)) {
 		database->disconnect(SNAME("preload_finished"), on_finished);
+	}
+	const Callable on_progress = callable_mp(this, &TransitionScreen::_preload_progress);
+	if (database && database->is_connected(SNAME("preload_progress"), on_progress)) {
+		database->disconnect(SNAME("preload_progress"), on_progress);
 	}
 }
 
@@ -393,6 +515,50 @@ Ref<Preloads> TransitionScreen::get_preload_assets() const {
 	return preload_assets;
 }
 
+void TransitionScreen::set_animation_player(const NodePath &p_path) {
+	animation_player = p_path;
+	notify_property_list_changed(); // The animation names offered in the inspector depend on it.
+}
+
+NodePath TransitionScreen::get_animation_player() const {
+	return animation_player;
+}
+
+void TransitionScreen::set_intro_animation(const StringName &p_animation) {
+	intro_animation = p_animation;
+}
+
+StringName TransitionScreen::get_intro_animation() const {
+	return intro_animation;
+}
+
+void TransitionScreen::set_outro_animation(const StringName &p_animation) {
+	outro_animation = p_animation;
+}
+
+StringName TransitionScreen::get_outro_animation() const {
+	return outro_animation;
+}
+
+void TransitionScreen::_validate_property(PropertyInfo &p_property) const {
+	if (p_property.name != "intro_animation" && p_property.name != "outro_animation") {
+		return;
+	}
+	// Offer the animations of the player as suggestions.
+	const AnimationPlayer *player = Object::cast_to<AnimationPlayer>(get_node_or_null(animation_player));
+	if (!player) {
+		return;
+	}
+	LocalVector<StringName> names;
+	player->get_animation_list(&names);
+	String hint;
+	for (const StringName &animation_name : names) {
+		hint += (hint.is_empty() ? "" : ",") + String(animation_name);
+	}
+	p_property.hint = PROPERTY_HINT_ENUM_SUGGESTION;
+	p_property.hint_string = hint;
+}
+
 void TransitionScreen::finish() {
 	finish_requested = true;
 }
@@ -403,6 +569,20 @@ TransitionScreen::State TransitionScreen::get_state() const {
 
 float TransitionScreen::get_progress() const {
 	return progress;
+}
+
+// The scene counts as one file next to the files of the assets.
+void TransitionScreen::_get_load_counts(int &r_loaded, int &r_total) const {
+	const bool has_scene = !loading_path.is_empty() || loaded_scene.is_valid() || scene_progress >= 1.0f;
+	r_total = (has_scene ? 1 : 0) + (preload_tracked ? assets_total : 0);
+	r_loaded = (has_scene && scene_progress >= 1.0f ? 1 : 0) + (preload_tracked ? assets_loaded : 0);
+}
+
+Ref<LoadProgress> TransitionScreen::get_load_progress() const {
+	int loaded = 0;
+	int total = 0;
+	_get_load_counts(loaded, total);
+	return LoadProgress::create(loaded, total, progress);
 }
 
 float TransitionScreen::get_fade() const {
@@ -430,12 +610,20 @@ void TransitionScreen::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_free_current_scene_before_loading"), &TransitionScreen::is_free_current_scene_before_loading);
 	ClassDB::bind_method(D_METHOD("set_preload_assets", "assets"), &TransitionScreen::set_preload_assets);
 	ClassDB::bind_method(D_METHOD("get_preload_assets"), &TransitionScreen::get_preload_assets);
+	ClassDB::bind_method(D_METHOD("set_animation_player", "path"), &TransitionScreen::set_animation_player);
+	ClassDB::bind_method(D_METHOD("get_animation_player"), &TransitionScreen::get_animation_player);
+	ClassDB::bind_method(D_METHOD("set_intro_animation", "animation"), &TransitionScreen::set_intro_animation);
+	ClassDB::bind_method(D_METHOD("get_intro_animation"), &TransitionScreen::get_intro_animation);
+	ClassDB::bind_method(D_METHOD("set_outro_animation", "animation"), &TransitionScreen::set_outro_animation);
+	ClassDB::bind_method(D_METHOD("get_outro_animation"), &TransitionScreen::get_outro_animation);
 
 	ClassDB::bind_method(D_METHOD("finish"), &TransitionScreen::finish);
 	ClassDB::bind_method(D_METHOD("get_state"), &TransitionScreen::get_state);
 	ClassDB::bind_method(D_METHOD("get_progress"), &TransitionScreen::get_progress);
+	ClassDB::bind_method(D_METHOD("get_load_progress"), &TransitionScreen::get_load_progress);
 	ClassDB::bind_method(D_METHOD("get_fade"), &TransitionScreen::get_fade);
 	ClassDB::bind_method(D_METHOD("get_load_error"), &TransitionScreen::get_load_error);
+	ClassDB::bind_static_method("TransitionScreen", D_METHOD("create_template", "template"), &TransitionScreen::create_template);
 
 	GDVIRTUAL_BIND(_update_fade, "fade");
 
@@ -448,6 +636,11 @@ void TransitionScreen::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "auto_finish"), "set_auto_finish", "is_auto_finish");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "free_current_scene_before_loading"), "set_free_current_scene_before_loading", "is_free_current_scene_before_loading");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "preload_assets", PROPERTY_HINT_RESOURCE_TYPE, "Preloads"), "set_preload_assets", "get_preload_assets");
+
+	ADD_GROUP("Animation", "");
+	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "animation_player", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "AnimationPlayer"), "set_animation_player", "get_animation_player");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "intro_animation"), "set_intro_animation", "get_intro_animation");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING_NAME, "outro_animation"), "set_outro_animation", "get_outro_animation");
 
 	ADD_SIGNAL(MethodInfo("started"));
 	ADD_SIGNAL(MethodInfo("progress_changed", PropertyInfo(Variant::FLOAT, "progress")));
@@ -462,6 +655,10 @@ void TransitionScreen::_bind_methods() {
 	BIND_ENUM_CONSTANT(STATE_LOADED);
 	BIND_ENUM_CONSTANT(STATE_FADING_OUT);
 	BIND_ENUM_CONSTANT(STATE_COMPLETED);
+
+	BIND_ENUM_CONSTANT(TEMPLATE_SPLASH);
+	BIND_ENUM_CONSTANT(TEMPLATE_LOADING);
+	BIND_ENUM_CONSTANT(TEMPLATE_MAX);
 }
 
 TransitionScreen::TransitionScreen() {
@@ -481,6 +678,7 @@ void LoadingScreen::_notification(int p_what) {
 			_show_tip(0);
 		} break;
 		case NOTIFICATION_INTERNAL_PROCESS: {
+			_update_count(); // The total can become known without a change of the ratio.
 			if (tips.size() < 2 || tip_interval <= 0.0) {
 				return;
 			}
@@ -497,6 +695,28 @@ void LoadingScreen::_progress_changed(float p_progress) {
 	if (bar) {
 		bar->set_as_ratio(p_progress);
 	}
+	_update_count();
+}
+
+void LoadingScreen::_update_count() {
+	Node *counter = get_node_or_null(count_label);
+	if (!counter) {
+		return;
+	}
+	int loaded = 0;
+	int total = 0;
+	_get_load_counts(loaded, total);
+	if (loaded == shown_loaded && total == shown_total) {
+		return;
+	}
+	shown_loaded = loaded;
+	shown_total = total;
+	// Hidden (empty) until the total is known, so "0 / 0" never shows.
+	String text;
+	if (!count_format.is_empty() && total > 0) {
+		text = count_format.sprintf(Array({ loaded, total }), nullptr);
+	}
+	counter->set(SNAME("text"), text);
 }
 
 void LoadingScreen::_show_tip(int p_index) {
@@ -525,6 +745,24 @@ void LoadingScreen::set_tip_label(const NodePath &p_path) {
 
 NodePath LoadingScreen::get_tip_label() const {
 	return tip_label;
+}
+
+void LoadingScreen::set_count_label(const NodePath &p_path) {
+	count_label = p_path;
+	shown_total = -1;
+}
+
+NodePath LoadingScreen::get_count_label() const {
+	return count_label;
+}
+
+void LoadingScreen::set_count_format(const String &p_format) {
+	count_format = p_format;
+	shown_total = -1;
+}
+
+String LoadingScreen::get_count_format() const {
+	return count_format;
 }
 
 void LoadingScreen::set_tips(const PackedStringArray &p_tips) {
@@ -556,6 +794,10 @@ void LoadingScreen::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_progress_bar"), &LoadingScreen::get_progress_bar);
 	ClassDB::bind_method(D_METHOD("set_tip_label", "path"), &LoadingScreen::set_tip_label);
 	ClassDB::bind_method(D_METHOD("get_tip_label"), &LoadingScreen::get_tip_label);
+	ClassDB::bind_method(D_METHOD("set_count_label", "path"), &LoadingScreen::set_count_label);
+	ClassDB::bind_method(D_METHOD("get_count_label"), &LoadingScreen::get_count_label);
+	ClassDB::bind_method(D_METHOD("set_count_format", "format"), &LoadingScreen::set_count_format);
+	ClassDB::bind_method(D_METHOD("get_count_format"), &LoadingScreen::get_count_format);
 	ClassDB::bind_method(D_METHOD("set_tips", "tips"), &LoadingScreen::set_tips);
 	ClassDB::bind_method(D_METHOD("get_tips"), &LoadingScreen::get_tips);
 	ClassDB::bind_method(D_METHOD("set_tip_interval", "seconds"), &LoadingScreen::set_tip_interval);
@@ -565,6 +807,8 @@ void LoadingScreen::_bind_methods() {
 	ADD_GROUP("Loading", "");
 	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "progress_bar", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "Range"), "set_progress_bar", "get_progress_bar");
 	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "tip_label"), "set_tip_label", "get_tip_label");
+	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "count_label"), "set_count_label", "get_count_label");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "count_format"), "set_count_format", "get_count_format");
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_STRING_ARRAY, "tips"), "set_tips", "get_tips");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tip_interval", PROPERTY_HINT_RANGE, "0,30,0.1,or_greater,suffix:s"), "set_tip_interval", "get_tip_interval");
 }

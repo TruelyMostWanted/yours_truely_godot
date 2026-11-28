@@ -28,7 +28,7 @@
 		[/codeblock]
 		The schema methods ([method get_table_names], [method has_table], [method get_columns], [method get_column_names], [method get_column_count], [method get_row_count]) take plain table names (no schema prefix) and never paste them into SQL unquoted. For an unknown table they return an empty result or [code]-1[/code] and set [method get_last_error] to [constant ERR_DOES_NOT_EXIST].
 		[b]Note:[/b] [method @GDScript.load] returns the same object for the same file while it is in use. For a second, separate connection, create one with [code]SQLiteDatabase.new()[/code] and open the path explicitly.
-		[b]Note:[/b] Databases in [code]res://[/code] are read-only for scripts, also in the editor (the Inspector's table editor can still change them). To modify a database shipped with the project, copy it to [code]user://[/code] first, for example with [method DirAccess.copy_absolute].
+		[b]Note:[/b] Databases in [code]res://[/code] are read-only for scripts, also in the editor (the editor's Database dock can still change them). To modify a database shipped with the project, copy it to [code]user://[/code] first, for example with [method DirAccess.copy_absolute].
 		[b]Note:[/b] On the Web, the rollback journal is kept in memory and the database file is written to IndexedDB on every commit.
 	</description>
 	<tutorials>

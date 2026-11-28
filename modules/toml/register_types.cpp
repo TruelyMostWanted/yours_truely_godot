@@ -42,12 +42,19 @@
 #ifdef TOOLS_ENABLED
 #include "editor/editor_node.h"
 #include "editor/script/script_editor_plugin.h"
+#include "editor/toml_inspector_plugin.h"
 #include "editor/toml_syntax_highlighter.h"
 
 static void _register_toml_syntax_highlighter() {
 	Ref<EditorTOMLSyntaxHighlighter> highlighter;
 	highlighter.instantiate();
 	ScriptEditor::get_singleton()->register_syntax_highlighter(highlighter);
+}
+
+static void _register_toml_inspector_plugin() {
+	Ref<EditorInspectorPluginTOML> plugin;
+	plugin.instantiate();
+	EditorInspector::add_inspector_plugin(plugin);
 }
 #endif // TOOLS_ENABLED
 
@@ -64,6 +71,7 @@ void initialize_toml_module(ModuleInitializationLevel p_level) {
 #ifdef TOOLS_ENABLED
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		EditorNode::add_init_callback(&_register_toml_syntax_highlighter);
+		EditorNode::add_init_callback(&_register_toml_inspector_plugin);
 		return;
 	}
 #endif // TOOLS_ENABLED

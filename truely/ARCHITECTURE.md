@@ -242,6 +242,37 @@ bool EditorInspectorPluginSpriteSheet::can_handle(Object *p_object) {
 }
 ```
 
+### 2.7 Basisklasse einer Familie: nur der gemeinsame Lebenszyklus
+
+Behandeln Loader, Saver, Serializer und Editor mehrere Klassen gleich, bekommen sie eine abstrakte Basisklasse. Die
+Basis hält nur, was alle gleich tun (Lebenszyklus), nie ein gemeinsames Datenmodell: Form der Daten, API zum Bearbeiten
+und Inspector gehören der einzelnen Klasse, ein eigenes Editor-Dock dort, wo die Klasse eines braucht. Ein Dock, das
+mehrere Klassen gleich bearbeitet (Tabellen), bleibt gemeinsam. Neue Virtuals der Basis nur für den Lebenszyklus; alles
+Formatspezifische kommt in die Unterklasse.
+
+**Godot** · `core/object/script_language.h`: `Script` teilt Laden, Quelltext und Instanzen; jede Sprache hat ihre eigene
+API, der `ScriptEditor` bedient die ganze Familie.
+
+```cpp
+class Script : public Resource {
+	GDCLASS(Script, Resource);
+```
+
+**Truely** · `core/io/text_data_format.h` (#421, #434): `TextDataFormat` ist das Textdokument der Datenformate `CSV`,
+`INI`, `XML`, `TOML`, `YAML`: `parse()` mit behaltenem Text, Fehler mit Zeile/Spalte, `options`, `load()`/`save()`,
+`validate()`, Endungen, `changed`. `data` ist pro Klasse typisiert; bearbeitet wird über die API der Klasse
+(`CSV.set_cell()`, `INI.set_value()`, `XML.get_root()`, `TOML.get_value()`, `YAML.get_value()`). Die Inspector-Plugins
+sind pro Format (#435, Abschnitt 6.2). Docks nach Gebrauch: das INI-Dock und die Localization Table (Übersetzungs-CSVs)
+für ein Format, das Dataset-Dock gemeinsam für alle Formate mit einer Tabelle.
+
+```cpp
+class TextDataFormat : public Resource {
+	GDCLASS(TextDataFormat, Resource);
+	...
+	virtual Error _parse_data(const String &p_text, const Ref<SerializerOptions> &p_options, Variant &r_data, String &r_error, int &r_line, int &r_column);
+	virtual Error _encode_data(const Variant &p_data, const Ref<SerializerOptions> &p_options, String &r_text, String &r_error) const;
+```
+
 ---
 
 ## 3. Server als API-Endpunkte
@@ -559,6 +590,25 @@ Zusätzliche Anzeigen und Knöpfe im Inspector (Vorschau, Tabelle, „Edit Regio
 `EditorInspectorPlugin`, das über `can_handle()` die Klasse wählt. Properties bleiben normale Properties mit Hints.
 Beispiele: [2.6](#26-editor-plugin-nur-bedienung).
 
+Eine Familie von Klassen (Abschnitt 2.7) bekommt **ein Inspector-Plugin pro Klasse** auf einer gemeinsamen View. Die
+View hält, was alle zeigen (Zusammenfassung, Parse-Status, Prüfung, den Knopf zum gemeinsamen Dock); jede Klasse leitet
+ihre eigene View ab und zeigt, was zu ihr passt, auch die Knöpfe ihrer eigenen Docks. Die gemeinsame View kennt keine
+einzelne Klasse der Familie. Kein Plugin mit `if`-Ketten über die Klassen. Wird die View in Zeilen umbrochen
+(`HFlowContainer` für Knopfreihen), bleibt der Inspector auch schmal ohne horizontale Bildlaufleiste.
+
+**Truely** · `editor/inspector/data_file_inspector_plugin.h` (#435): `DataFileInspectorView` mit Virtuals für
+Zusammenfassung, Baum, Zeilennamen, Vorschau und eigene Docks (`_add_dock_button()`); `EditorInspectorPluginCSV`
+(Tabelle, Schema der Spalten, Localization Table), `...INI` (Sections, INI-Dock), `...XML` (Elementbaum), `...JSON`
+(Wertebaum), in ihren Modulen `...YAML` (Dokumente) und `...TOML` (Tabellen).
+
+```cpp
+class EditorInspectorPluginINI : public EditorInspectorPluginDataFile {
+	GDCLASS(EditorInspectorPluginINI, EditorInspectorPluginDataFile);
+
+public:
+	virtual DataFileInspectorView *create_view(const Ref<Resource> &p_resource) const override;
+```
+
 ---
 
 ## 7. Editor-Docks
@@ -727,9 +777,9 @@ passen bei Größenänderungen erneut an, bis der Nutzer selbst zoomt oder versc
 
 ## 8. Prüfliste für neue Features
 
-Gehört in „Technical notes“ des Feature-Issues, bevor die Umsetzung beginnt:
+Gehört in den „Implementation plan“ des Feature-Issues, bevor die Umsetzung beginnt:
 
-1. **Klassenarten** (Abschnitt 2): Welche Teile sind Resource, Playback, Node, Server, Registry, Editor? Warum ist ein Node nötig?
+1. **Klassenarten** (Abschnitt 2): Welche Teile sind Resource, Playback, Node, Server, Registry, Editor? Warum ist ein Node nötig? Eine Basisklasse nur für den gemeinsamen Lebenszyklus (2.7).
 2. **Schichten** (Abschnitt 1): Abhängigkeiten nur nach unten; Editor-Teile hinter `TOOLS_ENABLED`; optionale Module geprüft.
 3. **Server-API** (Abschnitt 3): viele Instanzen → RID-Endpunkte; Threads und Web ohne Threads bedacht.
 4. **Heißer Pfad** (Abschnitt 4): Was läuft pro Frame? Daten in Arrays, keine `Variant`/`Dictionary`/Allokation; Messung geplant.

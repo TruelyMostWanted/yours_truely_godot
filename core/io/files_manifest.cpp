@@ -31,6 +31,7 @@
 #include "files_manifest.h"
 
 #include "core/io/dir_access.h"
+#include "core/io/load_progress.h"
 #include "core/io/path_info.h"
 #include "core/io/path_prefix_server.h"
 #include "core/io/resource_loader.h"
@@ -103,6 +104,7 @@ Error FilesManifest::load_threaded_request_paths(const PackedStringArray &p_path
 
 void FilesManifest::set_type_hint(const StringName &p_type_hint) {
 	type_hint = p_type_hint;
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -118,6 +120,7 @@ void FilesManifest::set_extensions(const PackedStringArray &p_extensions) {
 			extensions.push_back(ext);
 		}
 	}
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -127,6 +130,7 @@ PackedStringArray FilesManifest::get_extensions() const {
 
 void FilesManifest::set_folder_paths(const PackedStringArray &p_folder_paths) {
 	folder_paths = p_folder_paths;
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -136,6 +140,7 @@ PackedStringArray FilesManifest::get_folder_paths() const {
 
 void FilesManifest::set_file_paths(const PackedStringArray &p_file_paths) {
 	file_paths = p_file_paths;
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -145,6 +150,7 @@ PackedStringArray FilesManifest::get_file_paths() const {
 
 void FilesManifest::set_recursive(bool p_recursive) {
 	recursive = p_recursive;
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -154,6 +160,7 @@ bool FilesManifest::is_recursive() const {
 
 void FilesManifest::set_create_missing_folders(bool p_create) {
 	create_missing_folders = p_create;
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -398,11 +405,99 @@ Dictionary FilesManifest::load_resources(ResourceLoaderConstants::CacheMode p_ca
 	return resources;
 }
 
+const PackedStringArray &FilesManifest::_get_load_paths(Error *r_error) const {
+	if (!load_paths_cached) {
+		load_paths = get_paths(r_error);
+		load_paths_cached = true;
+	}
+	return load_paths;
+}
+
 Error FilesManifest::load_threaded_request_resources(bool p_use_sub_threads, ResourceLoaderConstants::CacheMode p_cache_mode) const {
+	load_paths_cached = false; // A new request scans the folders again.
 	Error paths_error = OK;
-	const PackedStringArray paths = get_paths(&paths_error);
+	const PackedStringArray &paths = _get_load_paths(&paths_error);
+	load_active = true;
+#ifdef THREADS_ENABLED
 	const Error request_error = load_threaded_request_paths(paths, _get_load_type_hint(), p_use_sub_threads, p_cache_mode);
 	return paths_error != OK ? paths_error : request_error;
+#else
+	// Without threads nothing loads at the request: `load_threaded_step_resources()` loads one file per call.
+	load_use_sub_threads = p_use_sub_threads;
+	load_cache_mode = p_cache_mode;
+	load_step = 0;
+	loaded_without_threads.clear();
+	return paths_error;
+#endif
+}
+
+Ref<LoadProgress> FilesManifest::load_threaded_get_status_resources() const {
+	const PackedStringArray &paths = _get_load_paths();
+	int loaded = 0;
+	float done = 0.0f;
+#ifdef THREADS_ENABLED
+	// A pure query: files that were not requested (or were already taken) count as not loaded.
+	for (const String &path : paths) {
+		float file_progress = 0.0f;
+		const ResourceLoader::ThreadLoadStatus status = ResourceLoader::load_threaded_get_status(path, &file_progress);
+		if (status == ResourceLoader::THREAD_LOAD_IN_PROGRESS) {
+			done += file_progress;
+		} else if (status != ResourceLoader::THREAD_LOAD_INVALID_RESOURCE) {
+			loaded++; // Loaded or failed.
+			done += 1.0f;
+		}
+	}
+#else
+	// Without threads the files load in `load_threaded_step_resources()`: the status only counts them.
+	loaded = load_active ? load_step : 0;
+	done = float(loaded);
+#endif
+	return LoadProgress::create(loaded, paths.size(), paths.is_empty() ? 1.0f : done / float(paths.size()));
+}
+
+Ref<LoadProgress> FilesManifest::load_threaded_step_resources() const {
+#ifndef THREADS_ENABLED
+	const PackedStringArray &paths = _get_load_paths();
+	if (load_active && load_step < paths.size()) {
+		const String &path = paths[load_step++];
+		if (ResourceLoader::load_threaded_request(path, _get_load_type_hint(), load_use_sub_threads, load_cache_mode) == OK) {
+			const Ref<Resource> resource = ResourceLoader::load_threaded_get(path);
+			if (resource.is_valid()) {
+				loaded_without_threads[path] = resource;
+			}
+		}
+	}
+#endif
+	return load_threaded_get_status_resources();
+}
+
+Dictionary FilesManifest::load_threaded_get_resources() const {
+	Dictionary result;
+	const PackedStringArray &paths = _get_load_paths();
+#ifdef THREADS_ENABLED
+	for (const String &path : paths) {
+		const Ref<Resource> resource = ResourceLoader::load_threaded_get(path);
+		if (resource.is_valid()) {
+			result[path] = resource;
+		}
+	}
+#else
+	for (const KeyValue<String, Ref<Resource>> &loaded : loaded_without_threads) {
+		result[loaded.key] = loaded.value;
+	}
+	for (int idx = load_step; load_active && idx < paths.size(); idx++) {
+		// Files the status calls did not reach yet.
+		const Ref<Resource> resource = ResourceLoader::load(paths[idx], _get_load_type_hint(), load_cache_mode);
+		if (resource.is_valid()) {
+			result[paths[idx]] = resource;
+		}
+	}
+	load_step = 0;
+	loaded_without_threads.clear();
+#endif
+	load_active = false; // The request is done: a status call afterwards loads nothing.
+	load_paths_cached = false;
+	return result;
 }
 
 void FilesManifest::_bind_methods() {

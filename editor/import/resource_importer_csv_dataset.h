@@ -35,14 +35,14 @@
 // Default importer of data CSV files: writes nothing and keeps the file, which the CSV loader reads as a CSV
 // resource (also in exported projects, like Keep File). Unlike Keep File, the file has the type CSV in the
 // FileSystem dock, so it can be selected, inspected and edited. Files whose header is a translation header
-// (keys, then locale columns) default to ResourceImporterCSVTranslation.
+// (keys, then only locale, note and ?context/?plural columns) default to ResourceImporterCSVTranslation.
 class ResourceImporterCSVDataset : public ResourceImporter {
 	GDCLASS(ResourceImporterCSVDataset, ResourceImporter);
 
 public:
 	static constexpr const char *IMPORTER_NAME = "csv_dataset";
 
-	// True if the first line of the file is a translation header (a column with a known language code).
+	// True if the first line of the file is a translation header (CSV::TranslationHeader::is_translation_table()).
 	static bool is_translation_file(const String &p_path);
 
 	virtual String get_importer_name() const override { return IMPORTER_NAME; }

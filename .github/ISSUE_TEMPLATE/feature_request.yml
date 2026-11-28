@@ -1,72 +1,99 @@
-name: Feature request
-description: Propose a new feature or an extension of an existing one.
+name: Feature proposal
+description: "Propose a new feature or an enhancement, with the plan for the pull request."
 title: "[Feature] "
 labels: ["type: feature"]
 body:
   - type: markdown
     attributes:
       value: |
-        One issue per **feature**, not per file or module. Steps and modules of a larger feature go into the
-        checklist below or into comments. Keep it short: a new team member should understand it without
-        reading the code.
+        Write short, simple and direct: bullet points, no filler, one thread from top to bottom.
+        Link files and lines (`https://github.com/<owner>/<repo>/blob/<commit>/path#L10-L20`).
+        A reader who knows Godot should understand the issue without reading the code.
 
   - type: textarea
-    id: summary
+    id: problem
     attributes:
-      label: Summary
-      description: What should the feature do? One or two sentences.
-      placeholder: ResourceLoader can list all resource paths below a directory, including those inside PCK files.
-    validations:
-      required: true
-
-  - type: textarea
-    id: current_state
-    attributes:
-      label: Current state
-      description: What the engine does today and where it falls short. Point to the code (file:line). Self-contained, no links into private repositories.
-      placeholder: ResourceLoader has no way to list resource paths; projects walk the file system by hand with DirAccess and miss files inside PCKs.
+      label: "Describe the problem or limitation you are having"
+      description: "What you cannot do today, or only with much effort. Link the code that falls short."
+      placeholder: |
+        - `ResourceLoader` cannot list resource paths below a folder.
+        - Projects walk the file system with `DirAccess` and miss files inside PCKs.
     validations:
       required: true
 
   - type: textarea
     id: proposal
     attributes:
-      label: Proposal
-      description: What changes and why it is better. Details belong in Scope and Technical notes.
-      placeholder: ResourceLoader.list_resource_paths() returns all paths below a folder, including those inside PCK files.
+      label: "Describe the feature / enhancement and how it helps to overcome the problem or limitation"
+      description: "What is added or changed, and why the problem is gone then. In scope and out of scope."
     validations:
       required: true
 
   - type: textarea
-    id: scope
+    id: how
     attributes:
-      label: Scope
-      description: What belongs to the feature, what explicitly does not? List modules or steps here.
+      label: "Describe how your proposal will work, with code, pseudo-code, mock-ups, and/or diagrams"
+      description: "The API as users will write it (GDScript, C#), Inspector or dock mock-ups, diagrams (Mermaid works)."
+      placeholder: |
+        ```gdscript
+        var paths := ResourceLoader.list_resource_paths("res://levels")
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: "Describe the implementation plan"
+      description: "New files and classes; existing files and methods to change, each linked to its lines. Steps in order. What is hard or unclear, and what was checked already (feasibility)."
       value: |
-        **In scope**
+        **New**
         -
 
-        **Out of scope**
+        **Changed**
         -
+
+        **Steps**
+        1.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: "If this enhancement will not be used often, can it be worked around with a few lines of script?"
+      description: "Show the workaround, or say why there is none."
+    validations:
+      required: true
+
+  - type: textarea
+    id: core
+    attributes:
+      label: "Is there a reason why this should be core and not an add-on in the asset library?"
+      description: "Why it belongs in the engine (performance, editor integration, every project needs it, needs engine internals)."
     validations:
       required: true
 
   - type: textarea
     id: acceptance
     attributes:
-      label: Acceptance criteria
-      description: Testable conditions. The feature is done when all boxes are checked.
+      label: "Acceptance criteria"
+      description: "Testable conditions. Done when all boxes are checked. The last five points are fixed."
       value: |
         - [ ]
-        - [ ] Build succeeds without errors or warnings
+        - [ ] C++ data structures and API created
+        - [ ] C#/GDScript bindings created and registered
+        - [ ] Documentation written (class reference in `doc/classes/` and wiki page: GDScript, C#, GDExtension)
+        - [ ] Test build on the current platform done (no errors or warnings)
+        - [ ] Tested in the test project (`res://<guide>/`: Example and Test) with a Mono build, in GDScript and in C#
     validations:
       required: true
 
   - type: dropdown
     id: area
     attributes:
-      label: Area
-      description: Which parts of the project are affected?
+      label: "Area"
+      description: "Which parts of the project are affected?"
       multiple: true
       options:
         - Core · core/ (Variant, Object, I/O, math)
@@ -83,17 +110,17 @@ body:
     validations:
       required: true
 
-  - type: textarea
-    id: technical
+  - type: dropdown
+    id: platforms
     attributes:
-      label: Technical notes
-      description: Affected classes, source folders, bindings (GDScript/C#), file formats; dependencies on other issues. Answer the checklist of truely/ARCHITECTURE.md section 7 (class kinds, layers, server API, hot path, extension, undo/redo, CI).
-      placeholder: |
-        - New: `ResourceLoader::list_paths()` in core/io, bound to GDScript and C#
-        - Depends on #12
-
-  - type: textarea
-    id: references
-    attributes:
-      label: References
-      description: Related issues, commits, documents, mockups.
+      label: "Platforms"
+      description: "Where must it work? Name in the plan what does not work where (Web is single-threaded, files only in user:// and the PCK)."
+      multiple: true
+      options:
+        - All
+        - Windows
+        - Linux
+        - macOS
+        - Android
+        - iOS
+        - Web

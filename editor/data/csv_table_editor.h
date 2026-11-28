@@ -48,9 +48,11 @@ class TextFile;
 class Timer;
 class Tree;
 
-// Edits a CSV file as a table in a bottom dock. Only one page of rows has tree items, so large files stay fast.
-// Data CSVs (CSV resources) get typed cells and issues from a DataSchema; translation CSVs (opened as TextFile)
-// get the issues of CSV.validate_translation(). Edits go through EditorUndoRedoManager and are shown in an open
+// The "Localization Table" bottom dock: edits translation CSVs and localization catalogs as a table.
+// Only one page of rows has tree items, so large files stay fast. Data CSVs open in the Dataset dock
+// (DatasetEditor, #436). Translation CSVs (a translation header or import, or opened as TextFile) get the
+// issues of CSV.validate_translation(); a TextFile CSV without a translation header keeps typed cells from a
+// DataSchema. Edits go through EditorUndoRedoManager and are shown in an open
 // text editor of the same file right away. Localization catalogs (#346) use the same table: one row per key, one
 // column per entry field (key, context, plural key or type, locales, notes), plural forms as child rows.
 class CSVTableEditor : public EditorDock {
@@ -140,7 +142,10 @@ protected:
 
 public:
 	static CSVTableEditor *get_singleton() { return singleton; }
-	// CSV and LocalizationCatalog resources, and translation CSVs opened as TextFile.
+	// A CSV imported as translation, or whose header columns after the first are all locales, notes (`_`) or
+	// `?context`/`?plural` with at least one known language. Other CSVs are data for the Dataset dock.
+	static bool is_translation_csv(const CSV *p_csv);
+	// LocalizationCatalog resources, translation CSVs, and CSVs opened as TextFile.
 	static bool can_edit(const Object *p_object);
 
 	void edit(const Ref<Resource> &p_resource);

@@ -89,6 +89,12 @@
 				Returns an estimate in bytes of the memory used by the stored resources: the stored properties (strings, packed arrays, arrays, dictionaries and sub-resources, each resource counted once). Video memory (textures and meshes on the [RenderingServer]) and native data that is not a stored property are not counted.
 			</description>
 		</method>
+		<method name="get_preload_progress" qualifiers="const">
+			<return type="LoadProgress" />
+			<description>
+				Returns the files loaded so far by the preloads that run on a worker thread right now. Every file counts the same. The result is finished (see [method LoadProgress.is_finished]) if nothing is preloading. Use the signal [signal preload_progress] to be told about every step.
+			</description>
+		</method>
 		<method name="get_resource" qualifiers="const">
 			<return type="Resource" />
 			<param index="0" name="key_or_path" type="String" />
@@ -149,6 +155,13 @@
 			<param index="1" name="error" type="int" enum="Error" />
 			<description>
 				Emitted on the main thread when [method preload_from] has loaded [param preloads]. [param error] is the first [enum Error] found, or [constant OK].
+			</description>
+		</signal>
+		<signal name="preload_progress">
+			<param index="0" name="preloads" type="Preloads" />
+			<param index="1" name="progress" type="LoadProgress" />
+			<description>
+				Emitted on the main thread each time a file of [param preloads] is loaded (or failed to load) by [method preload_from]. [param progress] holds the files done and the total, for example for a "3 / 12 loaded" label; the files of [member Preloads.manifests] are counted too. Direct resources and keys are not counted. The last emission is complete and comes before [signal preload_finished]. Without thread support the files load inside the call, so the signals follow on the next frame at once; a [TransitionScreen] steps through the files frame by frame there instead.
 			</description>
 		</signal>
 	</signals>

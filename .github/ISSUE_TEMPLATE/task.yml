@@ -1,40 +1,35 @@
 name: Task
-description: Work that is neither feature nor bug, e.g. publishing, marketing, store pages, screenshots, organization.
+description: "Work that is neither feature nor bug: tracker, release, docs, process."
 title: "[Task] "
 labels: ["type: task"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Write short, simple and direct: bullet points, no filler, one thread from top to bottom.
+        Link files and lines (`https://github.com/<owner>/<repo>/blob/<commit>/path#L10-L20`).
+        A reader who knows Godot should understand the issue without reading the code.
+
   - type: textarea
     id: goal
     attributes:
-      label: Goal
-      description: What is done when this task is done, in one or two sentences.
+      label: "Goal"
+      description: "What exists when this task is done."
     validations:
       required: true
 
   - type: textarea
     id: checklist
     attributes:
-      label: Checklist
-      description: The steps; each one checkable.
+      label: "Checklist"
+      description: "The steps, each checkable, in order."
       value: |
         - [ ]
     validations:
       required: true
 
-  - type: input
-    id: due
-    attributes:
-      label: Due
-      description: Date or event (e.g. "before the demo on Steam Next Fest"), if any.
-
-  - type: textarea
-    id: deliverables
-    attributes:
-      label: Deliverables
-      description: What exists afterwards and where (files, links, store fields).
-
   - type: textarea
     id: references
     attributes:
-      label: References
-      description: Store guidelines, required sizes, related issues.
+      label: "References"
+      description: "Related issues and links."

@@ -49,6 +49,7 @@
 #include "core/input/shortcut.h"
 #include "core/io/config_file.h"
 #include "core/io/csv_format.h"
+#include "core/io/csv_reader.h"
 #include "core/io/data_schema.h"
 #include "core/io/dir_access.h"
 #include "core/io/dtls_server.h"
@@ -61,6 +62,7 @@
 #include "core/io/ini_format.h"
 #include "core/io/json.h"
 #include "core/io/json_resource_format.h"
+#include "core/io/load_progress.h"
 #include "core/io/marshalls.h"
 #include "core/io/missing_resource.h"
 #include "core/io/packet_peer.h"
@@ -399,6 +401,7 @@ void register_core_types() {
 	GDREGISTER_CLASS(XML);
 	GDREGISTER_CLASS(INI);
 	GDREGISTER_CLASS(CSV);
+	GDREGISTER_CLASS(CSVReader);
 	GDREGISTER_CLASS(DataField);
 	GDREGISTER_CLASS(DataSchema);
 	GDREGISTER_CLASS(DataValidationOptions);
@@ -467,6 +470,7 @@ void register_core_types() {
 	GDREGISTER_ABSTRACT_CLASS(PCKPackageServer);
 	GDREGISTER_ABSTRACT_CLASS(StreamingAssetsServer);
 	GDREGISTER_CLASS(Preloads);
+	GDREGISTER_CLASS(LoadProgress);
 #ifndef DISABLE_DEPRECATED
 	// Renamed in 0.2.2 (naming rule: no container type in a name); saved resources keep loading.
 	ClassDB::add_compatibility_class("PreloadList", "Preloads");
