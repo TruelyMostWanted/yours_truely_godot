@@ -86,7 +86,7 @@ TEST_CASE("[DataTreeAdapter][JSON] Node kinds, entries and paths") {
 
 	CHECK(adapter->get_kind(PackedStringArray()) == Adapter::NODE_KIND_NAMED);
 	const LocalVector<Adapter::Entry> top = children_of(adapter, PackedStringArray());
-	REQUIRE(top.size() == 4);
+	REQUIRE(top.size() == 4u);
 	CHECK(top[0].key == "This");
 	CHECK(top[0].type == "Dictionary");
 	CHECK(top[0].value == "1 key");
@@ -130,9 +130,9 @@ TEST_CASE("[DataTreeAdapter][JSON] Paging, long values and search") {
 	const Ref<Adapter> adapter = Adapter::create_for(json);
 
 	const PackedStringArray path = path_of({ "items" });
-	CHECK(children_of(adapter, path, 0, 200).size() == 200);
+	CHECK(children_of(adapter, path, 0, 200).size() == 200u);
 	const LocalVector<Adapter::Entry> last = children_of(adapter, path, 400, 200);
-	REQUIRE(last.size() == 50);
+	REQUIRE(last.size() == 50u);
 	CHECK(last[0].segment == "400");
 	CHECK(children_of(adapter, path, 450, 200).is_empty());
 	CHECK(children_of(adapter, path, -1, 200).is_empty());
@@ -144,10 +144,10 @@ TEST_CASE("[DataTreeAdapter][JSON] Paging, long values and search") {
 
 	// Keys and values (not container sizes), depth-first, at most p_max.
 	Vector<PackedStringArray> found = adapter->find("UNIT_44", 100);
-	REQUIRE(found.size() == 11); // unit_44 and unit_440 .. unit_449.
+	REQUIRE(found.size() == 11u); // unit_44 and unit_440 .. unit_449.
 	CHECK(found[0] == path_of({ "items", "44", "name" }));
-	CHECK(adapter->find("unit_", 5).size() == 5);
-	CHECK(adapter->find("items", 10).size() == 1);
+	CHECK(adapter->find("unit_", 5).size() == 5u);
+	CHECK(adapter->find("items", 10).size() == 1u);
 	CHECK(adapter->find("2 items", 10).is_empty());
 	CHECK(adapter->find(String(), 10).is_empty());
 }
@@ -199,7 +199,7 @@ TEST_CASE("[DataTreeAdapter][INI] Sections are containers, numbered sections a l
 	REQUIRE(Object::cast_to<INITreeAdapter>(adapter.ptr()) != nullptr);
 
 	const LocalVector<Adapter::Entry> top = children_of(adapter, PackedStringArray());
-	REQUIRE(top.size() == 4);
+	REQUIRE(top.size() == 4u);
 	CHECK(top[0].key == "version"); // Keys before the first section are top-level values.
 	CHECK(top[0].type == "int");
 	CHECK(top[1].key == "player");
@@ -217,7 +217,7 @@ TEST_CASE("[DataTreeAdapter][INI] Sections are containers, numbered sections a l
 	CHECK(adapter->format_path(path_of({ "This", "Is", "A", "Test" })) == "[This/Is/A] Test");
 	CHECK(adapter->format_path(path_of({ "MyItems", "0" })) == "[MyItems/0]");
 	CHECK(adapter->format_path(path_of({ "version" })) == "version");
-	CHECK(adapter->find("Shield", 10).size() == 1);
+	CHECK(adapter->find("Shield", 10).size() == 1u);
 
 	// The tree follows the resource's `changed` signal.
 	ini->set_value("player", "mana", 5);
@@ -275,12 +275,12 @@ TEST_CASE("[DataTreeAdapter][XML] Elements, attributes, lists and repeated tags"
 
 	// The root element is the only top-level node.
 	const LocalVector<Adapter::Entry> top = children_of(adapter, PackedStringArray());
-	REQUIRE(top.size() == 1);
+	REQUIRE(top.size() == 1u);
 	CHECK(top[0].key == "game");
 	CHECK(top[0].type == "Element");
 
 	const LocalVector<Adapter::Entry> game = children_of(adapter, path_of({ "game" }));
-	REQUIRE(game.size() == 6);
+	REQUIRE(game.size() == 6u);
 	CHECK(game[0].segment == "@version");
 	CHECK(game[0].type == "Attribute");
 	CHECK(game[1].segment == "title");
@@ -297,7 +297,7 @@ TEST_CASE("[DataTreeAdapter][XML] Elements, attributes, lists and repeated tags"
 	CHECK(adapter->get_value(path_of({ "game", "spawn[1]", "@x" })) == Variant("2"));
 	// Mixed content: the text is one value "#text".
 	const LocalVector<Adapter::Entry> note = children_of(adapter, path_of({ "game", "note" }));
-	REQUIRE(note.size() == 2);
+	REQUIRE(note.size() == 2u);
 	CHECK(note[0].segment == "#text");
 	CHECK(note[1].segment == "b");
 	CHECK(adapter->get_value_types(PackedStringArray()) == PackedInt32Array({ Variant::STRING }));
@@ -328,7 +328,7 @@ TEST_CASE("[DataTreeAdapter][XML] Edits through XMLElement") {
 	// Rename keeps the order of the attributes.
 	CHECK(adapter->rename(path_of({ "game", "spawn", "@x" }), "left") == OK);
 	const LocalVector<Adapter::Entry> spawn = children_of(adapter, path_of({ "game", "spawn" }));
-	REQUIRE(spawn.size() == 2);
+	REQUIRE(spawn.size() == 2u);
 	CHECK(spawn[0].segment == "@left");
 	CHECK(spawn[1].segment == "@y");
 	CHECK(adapter->rename(path_of({ "game", "title" }), "name") == OK);
@@ -371,7 +371,7 @@ TEST_CASE("[DataTreeAdapter][CSV] The path form is a tree") {
 	REQUIRE(Object::cast_to<CSVTreeAdapter>(adapter.ptr()) != nullptr);
 
 	const LocalVector<Adapter::Entry> top = children_of(adapter, PackedStringArray());
-	REQUIRE(top.size() == 4);
+	REQUIRE(top.size() == 4u);
 	CHECK(top[0].key == "version");
 	CHECK(top[0].type == "String");
 	CHECK(top[2].key == "MyItems");
@@ -401,7 +401,7 @@ TEST_CASE("[DataTreeAdapter][CSV] Edits through the CSV API") {
 	// The header stays, so the file stays a tree.
 	CHECK(CSVTreeAdapter::is_path_form(csv));
 	for (int i = 0; i < csv->get_row_count(); i++) {
-		CHECK(csv->get_row(i).size() == 3);
+		CHECK(csv->get_row(i).size() == 3u);
 	}
 }
 
@@ -424,7 +424,7 @@ TEST_CASE("[DataTreeAdapter] Big data: the first page stays cheap") {
 	json->set_data(objects);
 	const Ref<Adapter> json_adapter = Adapter::create_for(json);
 	uint64_t start = OS::get_singleton()->get_ticks_usec();
-	CHECK(children_of(json_adapter, PackedStringArray(), 0, 200).size() == 200);
+	CHECK(children_of(json_adapter, PackedStringArray(), 0, 200).size() == 200u);
 	const uint64_t json_usec = OS::get_singleton()->get_ticks_usec() - start;
 
 	// INI: 10 000 numbered sections; the first read builds the tree.
@@ -440,7 +440,7 @@ TEST_CASE("[DataTreeAdapter] Big data: the first page stays cheap") {
 	ini->set_data(sections);
 	const Ref<Adapter> ini_adapter = Adapter::create_for(ini);
 	start = OS::get_singleton()->get_ticks_usec();
-	CHECK(children_of(ini_adapter, path_of({ "units" }), 0, 200).size() == 200);
+	CHECK(children_of(ini_adapter, path_of({ "units" }), 0, 200).size() == 200u);
 	const uint64_t ini_usec = OS::get_singleton()->get_ticks_usec() - start;
 	CHECK(ini_adapter->get_kind(path_of({ "units" })) == Adapter::NODE_KIND_INDEXED);
 
@@ -450,7 +450,7 @@ TEST_CASE("[DataTreeAdapter] Big data: the first page stays cheap") {
 		rows.push_back(PackedStringArray({ vformat("unit_%d", i), "warrior", itos(i % 200), i % 2 ? "true" : "false" }));
 	}
 	start = OS::get_singleton()->get_ticks_usec();
-	CHECK(CSVInspectorView::get_column_chars(PackedStringArray({ "name", "class", "hp", "ranged" }), rows, 100, 32, 24).size() == 4);
+	CHECK(CSVInspectorView::get_column_chars(PackedStringArray({ "name", "class", "hp", "ranged" }), rows, 100, 32, 24).size() == 4u);
 	const uint64_t csv_usec = OS::get_singleton()->get_ticks_usec() - start;
 	MESSAGE(vformat("First page of 20 000 deep JSON objects: %d us; first page of 10 000 INI list sections (with the build): %d us; CSV preview widths of 20 000 rows: %d us.", json_usec, ini_usec, csv_usec));
 }
