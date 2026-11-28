@@ -177,6 +177,7 @@ protected:
 	void _notification(int p_what);
 	static void _bind_methods();
 	virtual void _progress_changed(float p_progress) override;
+	void _update_count();
 
 public:
 	void set_progress_bar(const NodePath &p_path);

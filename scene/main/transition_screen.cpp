@@ -655,6 +655,7 @@ void LoadingScreen::_notification(int p_what) {
 			_show_tip(0);
 		} break;
 		case NOTIFICATION_INTERNAL_PROCESS: {
+			_update_count(); // The total can become known without a change of the ratio.
 			if (tips.size() < 2 || tip_interval <= 0.0) {
 				return;
 			}
@@ -671,10 +672,22 @@ void LoadingScreen::_progress_changed(float p_progress) {
 	if (bar) {
 		bar->set_as_ratio(p_progress);
 	}
+	_update_count();
+}
+
+void LoadingScreen::_update_count() {
 	Node *counter = get_node_or_null(count_label);
-	if (counter) {
-		const Ref<LoadProgress> load_progress = get_load_progress();
-		counter->set(SNAME("text"), count_format.is_empty() ? String() : count_format.sprintf(Array({ load_progress->get_loaded_count(), load_progress->get_total_count() }), nullptr));
+	if (!counter) {
+		return;
+	}
+	// Hidden (empty) until the total is known, so "0 / 0" never shows.
+	const Ref<LoadProgress> load_progress = get_load_progress();
+	String text;
+	if (!count_format.is_empty() && load_progress->get_total_count() > 0) {
+		text = count_format.sprintf(Array({ load_progress->get_loaded_count(), load_progress->get_total_count() }), nullptr);
+	}
+	if (counter->get(SNAME("text")) != Variant(text)) {
+		counter->set(SNAME("text"), text);
 	}
 }
 

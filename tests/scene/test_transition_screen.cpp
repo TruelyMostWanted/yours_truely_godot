@@ -596,6 +596,7 @@ TEST_CASE("[SceneTree][TransitionScreen] Progress covers the scene and the prelo
 	preloads->set_paths(PackedStringArray({ asset_path }));
 	screen->set_preload_assets(preloads);
 	tree->get_root()->add_child(screen);
+	CHECK(counter->get_text() == ""); // Hidden until the total is known (never "0 / 0").
 
 	float last_progress = 0.0f;
 	for (int frame = 0; frame < 2000 && screen->get_state() < TransitionScreen::STATE_LOADED; frame++) {

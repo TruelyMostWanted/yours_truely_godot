@@ -104,6 +104,7 @@ Error FilesManifest::load_threaded_request_paths(const PackedStringArray &p_path
 
 void FilesManifest::set_type_hint(const StringName &p_type_hint) {
 	type_hint = p_type_hint;
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -119,6 +120,7 @@ void FilesManifest::set_extensions(const PackedStringArray &p_extensions) {
 			extensions.push_back(ext);
 		}
 	}
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -128,6 +130,7 @@ PackedStringArray FilesManifest::get_extensions() const {
 
 void FilesManifest::set_folder_paths(const PackedStringArray &p_folder_paths) {
 	folder_paths = p_folder_paths;
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -137,6 +140,7 @@ PackedStringArray FilesManifest::get_folder_paths() const {
 
 void FilesManifest::set_file_paths(const PackedStringArray &p_file_paths) {
 	file_paths = p_file_paths;
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -146,6 +150,7 @@ PackedStringArray FilesManifest::get_file_paths() const {
 
 void FilesManifest::set_recursive(bool p_recursive) {
 	recursive = p_recursive;
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -155,6 +160,7 @@ bool FilesManifest::is_recursive() const {
 
 void FilesManifest::set_create_missing_folders(bool p_create) {
 	create_missing_folders = p_create;
+	load_paths_cached = false;
 	emit_changed();
 }
 
@@ -399,15 +405,24 @@ Dictionary FilesManifest::load_resources(ResourceLoaderConstants::CacheMode p_ca
 	return resources;
 }
 
+const PackedStringArray &FilesManifest::_get_load_paths(Error *r_error) const {
+	if (!load_paths_cached) {
+		load_paths = get_paths(r_error);
+		load_paths_cached = true;
+	}
+	return load_paths;
+}
+
 Error FilesManifest::load_threaded_request_resources(bool p_use_sub_threads, ResourceLoaderConstants::CacheMode p_cache_mode) const {
+	load_paths_cached = false; // A new request scans the folders again.
 	Error paths_error = OK;
-	const PackedStringArray paths = get_paths(&paths_error);
+	const PackedStringArray &paths = _get_load_paths(&paths_error);
 	const Error request_error = load_threaded_request_paths(paths, _get_load_type_hint(), p_use_sub_threads, p_cache_mode);
 	return paths_error != OK ? paths_error : request_error;
 }
 
 Ref<LoadProgress> FilesManifest::load_threaded_get_status_resources(bool p_use_sub_threads, ResourceLoaderConstants::CacheMode p_cache_mode) const {
-	const PackedStringArray paths = get_paths();
+	const PackedStringArray &paths = _get_load_paths();
 	const String type_hint = _get_load_type_hint();
 	int loaded = 0;
 	float done = 0.0f;
@@ -446,12 +461,13 @@ Ref<LoadProgress> FilesManifest::load_threaded_get_status_resources(bool p_use_s
 
 Dictionary FilesManifest::load_threaded_get_resources() const {
 	Dictionary result;
-	for (const String &path : get_paths()) {
+	for (const String &path : _get_load_paths()) {
 		const Ref<Resource> resource = ResourceLoader::load_threaded_get(path);
 		if (resource.is_valid()) {
 			result[path] = resource;
 		}
 	}
+	load_paths_cached = false; // The request is done.
 	return result;
 }
 

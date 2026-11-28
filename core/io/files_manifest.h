@@ -50,10 +50,15 @@ class FilesManifest : public Resource {
 	bool recursive = true;
 	bool create_missing_folders = false;
 
+	// Paths resolved for the threaded load (one folder scan per request, not per status call).
+	mutable PackedStringArray load_paths;
+	mutable bool load_paths_cached = false;
+
 	static void _split_folder_path(const String &p_folder_path, String &r_base, Vector<String> &r_pattern);
 	void _collect_folder(const String &p_folder, int p_depth, PackedStringArray &r_paths) const;
 	bool _type_matches(const String &p_path) const;
 	String _get_load_type_hint() const;
+	const PackedStringArray &_get_load_paths(Error *r_error = nullptr) const;
 
 protected:
 	static void _bind_methods();
