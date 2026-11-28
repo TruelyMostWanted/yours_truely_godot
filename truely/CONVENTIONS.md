@@ -145,6 +145,8 @@ Vorbild sind die [godot-proposals](https://github.com/godotengine/godot-proposal
 
 ### 3.3 Pull Requests
 
+Die Vorlage für jede Beschreibung liegt in [`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_REQUEST_TEMPLATE.md).
+
 Vorbild ist [godot#99404](https://github.com/godotengine/godot/pull/99404), etwas strenger aufgebaut. Ein PR zeigt das **Ergebnis**; das Issue bleibt der Ort für Problem und Plan.
 
 ```markdown
