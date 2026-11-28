@@ -182,7 +182,8 @@ TEST_CASE("[SceneTree][XMLInspectorView] Root element") {
 static void collect_button_texts(const Node *p_node, PackedStringArray &r_texts) {
 	for (int child_index = 0; child_index < p_node->get_child_count(); child_index++) {
 		const Node *child = p_node->get_child(child_index);
-		if (const Button *button = Object::cast_to<Button>(child)) {
+		const Button *button = Object::cast_to<Button>(child);
+		if (button && !button->is_toggle_mode()) { // Toggles such as "Raw Properties" are view options, not actions.
 			r_texts.push_back(button->get_text());
 		}
 		collect_button_texts(child, r_texts);
