@@ -157,6 +157,11 @@ TEST_CASE("[SubtitleEditorPlugin] Problems per cue") {
 	CHECK(problems.has(0)); // Overlaps the next segment.
 	REQUIRE(problems.has(1));
 	CHECK(problems.get(1).size() >= 1);
+
+	// The same from a validation the caller already has (the Inspector validates once per update).
+	const HashMap<int, PackedStringArray> from_validation = SubtitleEditorHelper::get_problems(subtitle->validate());
+	CHECK(from_validation.size() == problems.size());
+	CHECK(from_validation.get(1).size() == problems.get(1).size());
 }
 
 } // namespace TestSubtitleEditorPlugin

@@ -32,6 +32,7 @@
 
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "core/templates/local_vector.h"
 #include "editor/audio/subtitles_dock.h"
 #include "editor/docks/editor_dock_manager.h"
 #include "editor/editor_data.h"
@@ -185,9 +186,14 @@ TypedArray<SubtitleSegment> SubtitleEditorHelper::get_segments_with_segment_at(c
 }
 
 HashMap<int, PackedStringArray> SubtitleEditorHelper::get_problems(const Ref<Subtitle> &p_subtitle) {
+	ERR_FAIL_COND_V(p_subtitle.is_null(), (HashMap<int, PackedStringArray>()));
+	return get_problems(p_subtitle->validate());
+}
+
+HashMap<int, PackedStringArray> SubtitleEditorHelper::get_problems(const Ref<SubtitleValidation> &p_validation) {
 	HashMap<int, PackedStringArray> problems;
-	ERR_FAIL_COND_V(p_subtitle.is_null(), problems);
-	const Ref<SubtitleValidation> validation = p_subtitle->validate();
+	ERR_FAIL_COND_V(p_validation.is_null(), problems);
+	const Ref<SubtitleValidation> &validation = p_validation;
 	const String invalid_time = TTR("The end is not after the start, or the start is negative.");
 	const String empty_text = TTR("The text is empty.");
 	const String overlapping = TTR("Overlaps the next segment.");
@@ -218,13 +224,18 @@ void SubtitleEditor::_queue_update() {
 }
 
 void SubtitleEditor::_watch_segments() {
+	const Vector<Ref<SubtitleSegment>> segments = subtitle->get_segment_list();
+	// Rewire only when the segment objects themselves changed (add, remove, reorder), not on every edit.
+	if (segments == watched_segments) {
+		return;
+	}
 	const Callable callback = callable_mp(this, &SubtitleEditor::_queue_update);
 	for (const Ref<SubtitleSegment> &segment : watched_segments) {
 		if (segment.is_valid() && segment->is_connected(CoreStringName(changed), callback)) {
 			segment->disconnect_changed(callback);
 		}
 	}
-	watched_segments = subtitle->get_segment_list();
+	watched_segments = segments;
 	for (const Ref<SubtitleSegment> &segment : watched_segments) {
 		if (segment.is_valid() && !segment->is_connected(CoreStringName(changed), callback)) {
 			segment->connect_changed(callback);
@@ -263,34 +274,71 @@ void SubtitleEditor::_update() {
 	save_note_label->set_visible(subtitle->get_time_offset() != 0.0 && Subtitle::get_recognized_extensions().has(extension));
 	save_note_label->set_text(vformat(TTR("Saving as .%s adds the time offset to the written times, because the format has no offset field."), extension));
 
-	const HashMap<int, PackedStringArray> problems = SubtitleEditorHelper::get_problems(subtitle);
+	const HashMap<int, PackedStringArray> problems = SubtitleEditorHelper::get_problems(validation);
 
-	tree->clear();
-	TreeItem *root = tree->create_item();
+	// Update the rows in place: only cells whose text changed are touched, and the selection and scroll position stay.
+	TreeItem *root = tree->get_root();
+	if (root == nullptr) {
+		root = tree->create_item();
+	}
 	const Color warning_color = get_theme_color(SNAME("warning_color"), EditorStringName(Editor));
 	for (int i = 0; i < count; i++) {
+		TreeItem *item = i < root->get_child_count() ? root->get_child(i) : nullptr;
+		if (item == nullptr) {
+			item = tree->create_item(root);
+			item->set_metadata(0, i);
+		}
 		const Ref<SubtitleSegment> segment = subtitle->get_segment(i);
-		TreeItem *item = tree->create_item(root);
-		item->set_metadata(0, i);
-		item->set_text(COLUMN_INDEX, itos(i + 1));
+		String start_text;
+		String row_text;
+		String details;
 		if (segment.is_valid()) {
 			const double start = segment->get_start_time() + subtitle->get_time_offset();
 			const double end = segment->get_end_time() + subtitle->get_time_offset();
-			item->set_text(COLUMN_START, SubtitleEditorHelper::format_short_time(start));
-			item->set_text(COLUMN_TEXT, SubtitleEditorHelper::get_row_text(subtitle, segment));
-			const String details = vformat(TTR("%s - %s (%s s), %s"), SubtitleFormatSRT::format_time(start), SubtitleFormatSRT::format_time(end), String::num(segment->get_duration(), 3), SubtitleEditorHelper::get_kind_name(segment->get_kind()));
-			item->set_tooltip_text(COLUMN_START, details);
-			item->set_tooltip_text(COLUMN_TEXT, details + "\n" + segment->get_text());
+			start_text = SubtitleEditorHelper::format_short_time(start);
+			row_text = SubtitleEditorHelper::get_row_text(subtitle, segment);
+			details = vformat(TTR("%s - %s (%s s), %s"), SubtitleFormatSRT::format_time(start), SubtitleFormatSRT::format_time(end), String::num(segment->get_duration(), 3), SubtitleEditorHelper::get_kind_name(segment->get_kind()));
 		} else {
-			item->set_text(COLUMN_TEXT, TTR("<empty slot>"));
+			row_text = TTR("<empty slot>");
 		}
-		if (problems.has(i)) {
-			const String tooltip = String("\n").join(problems.get(i));
+		item->set_text(COLUMN_INDEX, itos(i + 1));
+		item->set_text(COLUMN_START, start_text);
+		item->set_text(COLUMN_TEXT, row_text);
+		String tooltip_start = details;
+		String tooltip_text = segment.is_valid() ? details + "\n" + segment->get_text() : String();
+		const bool has_problem = problems.has(i);
+		if (has_problem) {
+			const String problem_text = String("\n").join(problems.get(i));
+			tooltip_start += "\n" + problem_text;
+			tooltip_text += "\n" + problem_text;
+			item->set_tooltip_text(COLUMN_INDEX, problem_text);
+		} else {
+			item->set_tooltip_text(COLUMN_INDEX, String());
+		}
+		item->set_tooltip_text(COLUMN_START, tooltip_start);
+		item->set_tooltip_text(COLUMN_TEXT, tooltip_text);
+		if (has_problem) {
 			for (int column = 0; column < COLUMN_MAX; column++) {
 				item->set_custom_color(column, warning_color);
-				item->set_tooltip_text(column, item->get_tooltip_text(column) + "\n" + tooltip);
+			}
+		} else if (problem_rows.has(i)) {
+			for (int column = 0; column < COLUMN_MAX; column++) {
+				item->clear_custom_color(column);
 			}
 		}
+	}
+	// Remove the rows of segments that are gone.
+	// Collect the surplus rows first: each delete clears the parent's child cache.
+	LocalVector<TreeItem *> surplus;
+	for (TreeItem *item = count < root->get_child_count() ? root->get_child(count) : nullptr; item != nullptr; item = item->get_next()) {
+		surplus.push_back(item);
+	}
+	for (TreeItem *item : surplus) {
+		memdelete(item);
+	}
+	problem_rows.clear();
+	for (const KeyValue<int, PackedStringArray> &problem : problems) {
+		problem_rows.insert(problem.key);
 	}
 }
 

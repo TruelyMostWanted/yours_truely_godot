@@ -44,6 +44,14 @@
 				Returns the segments of track [param track_id] that are visible now, in the order of the subtitle.
 			</description>
 		</method>
+		<method name="get_display_speaker" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="subtitle" type="Subtitle" />
+			<param index="1" name="segment" type="SubtitleSegment" />
+			<description>
+				Returns the speaker name of [param segment] to show: translated in the translation domain [code]"subtitles"[/code] with the context [code]"speaker"[/code] if [member Subtitle.auto_translate] of [param subtitle] is enabled, otherwise [member SubtitleSegment.speaker]. [param subtitle] may be [code]null[/code]. [method Subtitle.get_translatable_strings] lists the speaker names with the same context, so a POT file contains them.
+			</description>
+		</method>
 		<method name="get_display_text" qualifiers="const">
 			<return type="String" />
 			<param index="0" name="subtitle" type="Subtitle" />

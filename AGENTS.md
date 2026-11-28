@@ -50,11 +50,12 @@ nutzbar aus GDScript, C# und GDExtension.
 
 ## Regeln für Agents
 
-- **Öffentlich:** Repository, Wiki und Testprojekt sind öffentlich. Private Repositories werden nirgends erwähnt (keine Namen, Links, Pfade, Klassennamen). Issues begründen sich über „Current state“ und „Proposal“.
+- **Öffentlich:** Repository, Wiki und Testprojekt sind öffentlich. Private Repositories werden nirgends erwähnt (keine Namen, Links, Pfade, Klassennamen). Issues begründen sich über das Problem und den Vorschlag (Godot-Proposal-Stil, `truely/CONVENTIONS.md` 3).
 - **Sprache:** Unterhaltung mit dem Nutzer auf Deutsch. Issues, Commits, Code-Kommentare und Wiki auf Englisch.
-- **Erst prüfen, dann bauen:** den Teil „Feasibility to check“ eines Issues beantworten und im Issue festhalten, bevor die Umsetzung beginnt.
+- **Erst prüfen, dann bauen:** die Machbarkeit im „Implementation plan“ eines Issues klären und im Issue festhalten, bevor die Umsetzung beginnt.
 - **Cross-Plattform und Web:** Beim Entwerfen, Planen und Umsetzen jedes Features die Benutzbarkeit und Performance auf Windows, Linux, macOS, Android, iOS **und im Web-Export** bedenken. Features sollen möglichst überall funktionieren, auch im Web (single-threaded, Dateien nur in `user://` und im PCK, wenig Speicher). Was nicht geht, steht im Issue unter „Platforms“.
 - **Kein Commit auf `master`.** Keine Änderungen an `version.py` (Konflikte beim Sync).
 - **Kein Push zu `upstream`.** PRs an Godot nur auf ausdrücklichen Wunsch, und dann das *base repository* prüfen.
 - Nur Pushes auf `truely-godot-engine-releases` starten die volle CI aller Plattformen (`truely-godot-engine` und Feature-Branches nicht; von Hand: `gh workflow run runner.yml --ref <branch>`). Auf Feature-Branches nur lokal bauen: Windows, Mono, Tests in GDScript und C#.
 - Commits enden mit der Zeile `Co-Authored-By:` des Agents, wenn ein Agent sie erstellt.
+- **Kommentare** in Issues und PRs in der Ich-Form, ohne Präfixe wie „(Owner, Datum)“ (`truely/CONVENTIONS.md` 3.2).

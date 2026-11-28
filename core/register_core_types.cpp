@@ -49,6 +49,7 @@
 #include "core/input/shortcut.h"
 #include "core/io/config_file.h"
 #include "core/io/csv_format.h"
+#include "core/io/csv_reader.h"
 #include "core/io/data_schema.h"
 #include "core/io/dir_access.h"
 #include "core/io/dtls_server.h"
@@ -399,6 +400,7 @@ void register_core_types() {
 	GDREGISTER_CLASS(XML);
 	GDREGISTER_CLASS(INI);
 	GDREGISTER_CLASS(CSV);
+	GDREGISTER_CLASS(CSVReader);
 	GDREGISTER_CLASS(DataField);
 	GDREGISTER_CLASS(DataSchema);
 	GDREGISTER_CLASS(DataValidationOptions);

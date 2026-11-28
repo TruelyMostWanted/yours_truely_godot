@@ -6,6 +6,8 @@
 	<description>
 		Point [member player] at a [SubtitlePlayer] and the label shows the segments that are visible now, one line each, in the order they started. The text of each line is [method SubtitleServer.get_display_text]: translated through the subtitles channel when [member Subtitle.auto_translate] is enabled, and decorated by [member SubtitleSegment.kind] ([code][Applause][/code], music notes, italics for off-screen and narration). Dialog lines get the speaker's name in front ([member show_speaker_names]) and the speaker's color ([member speaker_colors]).
 		With [member follow_accessibility_settings], the label shows nothing while [member AccessibilitySettings.subtitles_enabled] is off, drops closed captions while [member AccessibilitySettings.captions_enabled] is off, and its text size is [member font_size] scaled by [member AccessibilitySettings.subtitle_scale] and [member AccessibilitySettings.font_size_factor] (see [method AccessibilitySettingsServer.scale_subtitle_font_size]). [member SubtitleServer.captions_enabled] set to [code]false[/code] drops closed captions (sounds, reactions, music, lyrics), and [member SubtitleServer.enabled] set to [code]false[/code] hides all lines. The label updates at once when any of these change, and when the locale of the [code]subtitles[/code] channel changes ([method TranslationServer.set_locale_for]). The lines are translated only in the [code]subtitles[/code] domain: [member Node.auto_translate_mode] is [constant Node.AUTO_TRANSLATE_MODE_DISABLED] and read-only.
+		Speaker names are translated like the texts when [member Subtitle.auto_translate] is enabled ([method SubtitleServer.get_display_speaker]): in the domain [code]subtitles[/code] with the translation context [code]speaker[/code], which [method Subtitle.get_translatable_strings] also writes to the POT file.
+		In the editor, the label shows a sample line ([member preview_text], [member preview_speaker]) while no real line is visible, to place and style it.
 		The label writes [member RichTextLabel.text] itself: the text is not saved with the scene and is read-only in the Inspector. [member speaker_colors] is read when it is assigned: assign a new dictionary instead of changing the returned one, or call [method refresh]. While the game runs, the label hides itself while no line is shown, so a background [StyleBox] (theme item [code]normal[/code]) disappears with the text; to hide subtitles yourself, hide a parent node. Style it like any [RichTextLabel] (fonts, outline, shadow, background). [member SubtitleSegment.placement] is not applied: place the label where you want subtitles.
 		[codeblocks]
 		[gdscript]
@@ -69,6 +71,12 @@
 		<member name="mouse_filter" type="int" setter="set_mouse_filter" getter="get_mouse_filter" overrides="Control" enum="Control.MouseFilter" default="2" />
 		<member name="player" type="NodePath" setter="set_player" getter="get_player" default="NodePath(&quot;&quot;)">
 			The [SubtitlePlayer] whose segments are shown. It is resolved when the label is ready, so the player can come later in the scene, and again when the label re-enters the tree or the player leaves it.
+		</member>
+		<member name="preview_speaker" type="StringName" setter="set_preview_speaker" getter="get_preview_speaker" default="&amp;&quot;Speaker&quot;">
+			The speaker of the sample line shown in the editor (see [member preview_text]). It uses [member show_speaker_names] and the entry of [member speaker_colors], so the speaker styling can be tried out. Only used in the editor.
+		</member>
+		<member name="preview_text" type="String" setter="set_preview_text" getter="get_preview_text" default="&quot;The subtitle line appears here.&quot;">
+			The text of the sample line the label shows in the editor while no real line is visible, so it can be placed and styled (anchors, [member font_size], theme styles, background) without playing anything. It is never shown while the game runs. It is saved with the scene, but not translated.
 		</member>
 		<member name="show_speaker_names" type="bool" setter="set_show_speaker_names" getter="is_showing_speaker_names" default="true">
 			If [code]true[/code], a dialog line with a [member SubtitleSegment.speaker] starts with the speaker's name and a colon, for example [code]Anna: Hello[/code]. Closed captions never show a speaker.

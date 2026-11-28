@@ -85,7 +85,7 @@
 		<method name="get_translatable_strings" qualifiers="const">
 			<return type="PackedStringArray[]" />
 			<description>
-				Returns one entry per segment with text, for POT generation: [code][text, context, "", comment][/code] with [member SubtitleSegment.translation_context] as the context and [code]"Speaker: name"[/code] as the translator comment when [member SubtitleSegment.speaker] is set. The editor uses it for subtitle files ([code].srt[/code], [code].vtt[/code], ...) and [Subtitle] resources added to the POT generation list ([b]Project Settings &gt; Localization &gt; POT Generation[/b]). The entries do not depend on [member auto_translate].
+				Returns the entries for POT generation: one per segment with text, [code][text, context, "", comment][/code] with [member SubtitleSegment.translation_context] as the context and [code]"Speaker: name"[/code] as the translator comment when [member SubtitleSegment.speaker] is set; then one entry per distinct speaker of the dialog lines, [code][name, "speaker", "", "Speaker name"][/code]. The context [code]"speaker"[/code] is what [method SubtitleServer.get_display_speaker] and [SubtitleLabel] translate speaker names with. The editor uses it for subtitle files ([code].srt[/code], [code].vtt[/code], ...) and [Subtitle] resources added to the POT generation list ([b]Project Settings &gt; Localization &gt; POT Generation[/b]). The entries do not depend on [member auto_translate].
 			</description>
 		</method>
 		<method name="load_from_file">
@@ -101,6 +101,22 @@
 			<param index="1" name="format" type="int" enum="Subtitle.Format" />
 			<description>
 				Replaces the segments with those read from [param text] and resets [member time_offset] to [code]0.0[/code]. Cues that can't be read are skipped. Returns [constant ERR_PARSE_ERROR] if [param text] has content but not a single cue could be read; the subtitle is then unchanged.
+			</description>
+		</method>
+		<method name="merge_segments">
+			<return type="int" enum="Error" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="count" type="int" default="2" />
+			<description>
+				Merges [param count] consecutive segments, starting at [param index], into the segment at [param index]: it spans from the earliest start to the latest end, and its text is the texts of all merged segments, one per line. Speaker, kind and the other properties of the first segment are kept; the other segments are removed. Returns [constant ERR_INVALID_PARAMETER] if [param count] is less than 2 or the range is outside the list.
+				[codeblocks]
+				[gdscript]
+				subtitle.merge_segments(0) # The first two segments become one.
+				[/gdscript]
+				[csharp]
+				subtitle.MergeSegments(0); // The first two segments become one.
+				[/csharp]
+				[/codeblocks]
 			</description>
 		</method>
 		<method name="remove_segment">
@@ -121,13 +137,41 @@
 			<return type="void" />
 			<param index="0" name="seconds" type="float" />
 			<description>
-				Adds [param seconds] to the start and end time of every segment. Unlike [member time_offset], this changes the segments themselves.
+				Adds [param seconds] to the start and end time of every segment. Unlike [member time_offset], this changes the segments themselves. See also [method sync_times].
 			</description>
 		</method>
 		<method name="sort_segments">
 			<return type="void" />
 			<description>
 				Sorts the segments by start time, then by end time. Segments with the same times keep their order.
+			</description>
+		</method>
+		<method name="split_segment">
+			<return type="int" />
+			<param index="0" name="index" type="int" />
+			<param index="1" name="time" type="float" />
+			<description>
+				Splits the segment at [param index] at [param time], which must lie between its start and end time. The segment ends at [param time]; a copy of it (same speaker, kind, placement and translation context) starts there and is inserted after it. The text is divided at the line break nearest to where [param time] falls within the segment, else at the nearest space; a text without either stays in the first segment. Returns the index of the new segment, or [code]-1[/code] if the segment or the time is invalid.
+			</description>
+		</method>
+		<method name="sync_times">
+			<return type="void" />
+			<param index="0" name="first_time" type="float" />
+			<param index="1" name="first_target" type="float" />
+			<param index="2" name="second_time" type="float" />
+			<param index="3" name="second_target" type="float" />
+			<description>
+				Two-point sync: moves and stretches all segment times so that [param first_time] becomes [param first_target] and [param second_time] becomes [param second_target], with every other time mapped linearly between them. Use it for a subtitle that drifts against its audio or video, for example one made for a different frame rate: pick an early and a late segment and the times at which they should start. [param second_time] must differ from [param first_time], and the targets must keep the order of the times.
+				[codeblocks]
+				[gdscript]
+				# The first line should start at 2.0 s, the line that now starts at 60.0 s at 62.5 s.
+				subtitle.sync_times(1.5, 2.0, 60.0, 62.5)
+				[/gdscript]
+				[csharp]
+				// The first line should start at 2.0 s, the line that now starts at 60.0 s at 62.5 s.
+				subtitle.SyncTimes(1.5, 2.0, 60.0, 62.5);
+				[/csharp]
+				[/codeblocks]
 			</description>
 		</method>
 		<method name="to_text" qualifiers="const">

@@ -6,8 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
+        Write short, simple and direct: bullet points, no filler, one thread from top to bottom. Link files and lines.
         A review analyses without changing anything. Findings are cut into refactoring, bug or feature issues per
-        topic (not per file) and linked under Relations. Questions to the owner are collected here.
+        topic (not per file) and linked under Relations. Open questions are collected here.
 
   - type: textarea
     id: scope

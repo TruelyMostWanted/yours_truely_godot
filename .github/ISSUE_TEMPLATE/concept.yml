@@ -1,66 +1,76 @@
 name: Concept
-description: Concept, research or brainstorming. Reasoning and a recommendation, no implementation.
+description: "Work out a design before features are cut from it."
 title: "[Concept] "
 labels: ["type: concept"]
 body:
   - type: markdown
     attributes:
       value: |
-        A concept issue creates clarity before anything is built: questions, approaches, comparison, recommendation.
-        Nothing is implemented here. If the recommendation is yes, the follow-up issues are listed (not created).
+        Write short, simple and direct: bullet points, no filler, one thread from top to bottom.
+        Link files and lines (`https://github.com/<owner>/<repo>/blob/<commit>/path#L10-L20`).
+        A reader who knows Godot should understand the issue without reading the code.
 
   - type: textarea
-    id: summary
+    id: problem
     attributes:
-      label: Summary
-      description: The idea or the question in two or three sentences.
-    validations:
-      required: true
-
-  - type: textarea
-    id: current_state
-    attributes:
-      label: Current state
-      description: What the engine does today and why it is worth deciding now. Self-contained, no links into private repositories.
+      label: "Describe the problem or limitation you are having"
+      description: "What is missing or does not fit together today. Link the code."
     validations:
       required: true
 
   - type: textarea
     id: questions
     attributes:
-      label: Questions
-      description: What has to be answered before a decision.
+      label: "Which questions must the concept answer?"
+      description: "Each question so that an answer decides something."
       value: |
-        1.
+        -
     validations:
       required: true
 
   - type: textarea
-    id: approaches
+    id: options
     attributes:
-      label: Approaches
-      description: The approaches to compare (benefit, effort, risk, view of the user), including "do nothing" or a simpler alternative.
-      value: |
-        ### A ·
-        ### B ·
-        ### C · No change / simpler alternative
+      label: "Describe the options, with code, pseudo-code, mock-ups, and/or diagrams"
+      description: "Each option with pros and cons. Check how Godot solves similar things first."
     validations:
       required: true
+
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: "Recommendation and the features it leads to"
+      description: "The chosen option and why; the feature issues it is split into (all go into the same release unless said otherwise)."
 
   - type: textarea
     id: acceptance
     attributes:
-      label: Acceptance criteria
+      label: "Acceptance criteria"
+      description: "When is the concept done?"
       value: |
-        - [ ] The questions are answered in this issue
-        - [ ] The approaches are compared
-        - [ ] Recommendation with reasons (yes / no / later, and what first)
-        - [ ] If yes: follow-up issues listed with order and dependencies
+        - [ ] All questions answered in this issue
+        - [ ] Recommendation agreed
+        - [ ] Feature issues created and linked
     validations:
       required: true
 
-  - type: textarea
-    id: references
+  - type: dropdown
+    id: area
     attributes:
-      label: References
-      description: Related issues, documents, links.
+      label: "Area"
+      description: "Which parts of the project are affected?"
+      multiple: true
+      options:
+        - Core · core/ (Variant, Object, I/O, math)
+        - Scene · scene/ (nodes, resources, GUI)
+        - Servers · servers/ (rendering, physics, audio, navigation, text)
+        - Editor · editor/
+        - Modules · modules/ (GDScript, glTF, …)
+        - .NET · modules/mono (C# bindings)
+        - Platform & drivers · platform/, drivers/
+        - Third-party · thirdparty/
+        - Build & CI · SCons, .github/, misc/
+        - Tests · tests/
+        - Docs · doc/ (class reference)
+    validations:
+      required: true

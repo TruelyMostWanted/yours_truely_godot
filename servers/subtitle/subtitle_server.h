@@ -97,6 +97,7 @@ public:
 	String get_track_text(int p_track_id) const;
 
 	String get_display_text(const Ref<Subtitle> &p_subtitle, const Ref<SubtitleSegment> &p_segment, bool p_bbcode = false) const;
+	String get_display_speaker(const Ref<Subtitle> &p_subtitle, const Ref<SubtitleSegment> &p_segment) const;
 
 	void set_enabled(bool p_enabled);
 	bool is_enabled() const;

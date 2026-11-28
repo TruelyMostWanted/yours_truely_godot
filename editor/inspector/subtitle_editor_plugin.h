@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
 #include "editor/inspector/editor_inspector.h"
 #include "editor/plugins/editor_plugin.h"
 #include "scene/gui/box_container.h"
@@ -64,6 +65,8 @@ public:
 	static TypedArray<SubtitleSegment> get_segments_with_segment_at(const Ref<Subtitle> &p_subtitle, double p_start_time, double p_end_time);
 	// The validation problems of each segment index, as readable messages.
 	static HashMap<int, PackedStringArray> get_problems(const Ref<Subtitle> &p_subtitle);
+	// The same from an existing validation result, so a caller that needs both validates once.
+	static HashMap<int, PackedStringArray> get_problems(const Ref<SubtitleValidation> &p_validation);
 };
 
 // The segments of a `Subtitle` as a table under its class header in the Inspector.
@@ -72,6 +75,7 @@ class SubtitleEditor : public VBoxContainer {
 
 	Ref<Subtitle> subtitle;
 	Vector<Ref<SubtitleSegment>> watched_segments;
+	HashSet<int> problem_rows;
 	bool update_queued = false;
 
 	Label *summary_label = nullptr;
