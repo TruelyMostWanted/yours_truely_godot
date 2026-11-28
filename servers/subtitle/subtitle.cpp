@@ -36,6 +36,7 @@
 #include "core/templates/hash_set.h"
 #include "servers/subtitle/subtitle_format_srt.h"
 #include "servers/subtitle/subtitle_formats.h"
+#include "servers/subtitle/subtitle_server.h"
 
 // SubtitleSegment
 
@@ -125,6 +126,12 @@ bool SubtitleSegment::is_caption() const {
 	return kind == KIND_SOUND || kind == KIND_REACTION || kind == KIND_MUSIC || kind == KIND_LYRICS;
 }
 
+void SubtitleSegment::_validate_property(PropertyInfo &p_property) const {
+	if (p_property.name == "speaker") {
+		SubtitleServer::add_speaker_id_hint(p_property);
+	}
+}
+
 void SubtitleSegment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_start_time", "time"), &SubtitleSegment::set_start_time);
 	ClassDB::bind_method(D_METHOD("get_start_time"), &SubtitleSegment::get_start_time);
@@ -178,7 +185,7 @@ bool SubtitleValidation::is_valid() const {
 }
 
 int SubtitleValidation::get_problem_count() const {
-	return invalid_time_segments.size() + empty_text_segments.size() + overlapping_segments.size() + fast_reading_segments.size();
+	return invalid_time_segments.size() + empty_text_segments.size() + overlapping_segments.size() + fast_reading_segments.size() + unknown_speaker_segments.size();
 }
 
 void SubtitleValidation::_bind_methods() {
@@ -188,12 +195,14 @@ void SubtitleValidation::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_empty_text_segments"), &SubtitleValidation::get_empty_text_segments);
 	ClassDB::bind_method(D_METHOD("get_overlapping_segments"), &SubtitleValidation::get_overlapping_segments);
 	ClassDB::bind_method(D_METHOD("get_fast_reading_segments"), &SubtitleValidation::get_fast_reading_segments);
+	ClassDB::bind_method(D_METHOD("get_unknown_speaker_segments"), &SubtitleValidation::get_unknown_speaker_segments);
 
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "valid"), "", "is_valid");
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "invalid_time_segments"), "", "get_invalid_time_segments");
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "empty_text_segments"), "", "get_empty_text_segments");
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "overlapping_segments"), "", "get_overlapping_segments");
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "fast_reading_segments"), "", "get_fast_reading_segments");
+	ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "unknown_speaker_segments"), "", "get_unknown_speaker_segments");
 }
 
 // Subtitle
@@ -506,6 +515,10 @@ Error Subtitle::merge_segments(int p_index, int p_count) {
 Ref<SubtitleValidation> Subtitle::validate(double p_max_characters_per_second) const {
 	Ref<SubtitleValidation> result;
 	result.instantiate();
+	// Speaker ids are checked only when the project has speakers (#483): a renamed or mistyped id.
+	const SubtitleServer *subtitle_server = SubtitleServer::get_singleton();
+	const Ref<DialogueSpeakers> known_speakers = subtitle_server != nullptr ? subtitle_server->get_speakers() : Ref<DialogueSpeakers>();
+	const bool check_speakers = known_speakers.is_valid() && !known_speakers->get_speaker_list().is_empty();
 	for (int i = 0; i < segments.size(); i++) {
 		const Ref<SubtitleSegment> &segment = segments[i];
 		if (segment.is_null()) {
@@ -524,6 +537,9 @@ Ref<SubtitleValidation> Subtitle::validate(double p_max_characters_per_second) c
 			if (characters / duration > p_max_characters_per_second) {
 				result->fast_reading_segments.push_back(i);
 			}
+		}
+		if (check_speakers && segment->get_speaker() != StringName() && !segment->is_caption() && !known_speakers->has_speaker(segment->get_speaker())) {
+			result->unknown_speaker_segments.push_back(i);
 		}
 		// Overlap with the next segment in time (the list is expected to be sorted).
 		if (i + 1 < segments.size() && segments[i + 1].is_valid() && segments[i + 1]->get_start_time() < segment->get_end_time() && segments[i + 1]->get_start_time() >= segment->get_start_time()) {

@@ -44,6 +44,7 @@
 #include "editor/file_system/editor_file_system.h"
 #include "editor/gui/editor_toaster.h"
 #include "editor/inspector/editor_resource_picker.h"
+#include "editor/inspector/editor_speaker_picker.h"
 #include "editor/inspector/subtitle_editor_plugin.h"
 #include "editor/settings/editor_command_palette.h"
 #include "editor/settings/editor_settings.h"
@@ -350,6 +351,7 @@ void SubtitlesDock::_fill_row(TreeItem *p_item, int p_index, const String &p_kin
 		for (int column = COLUMN_START; column < COLUMN_MAX; column++) {
 			p_item->set_editable(column, true);
 		}
+		p_item->add_button(COLUMN_SPEAKER, get_editor_theme_icon(SNAME("Search")), 0, false, TTR("Pick a speaker"));
 	}
 	p_item->set_range(COLUMN_KIND, segment->get_kind());
 	p_item->set_text(COLUMN_TEXT, segment->get_text());
@@ -1315,6 +1317,38 @@ void SubtitlesDock::_tree_edited() {
 	undo_redo->commit_action();
 }
 
+void SubtitlesDock::_tree_button_clicked(TreeItem *p_item, int p_column, int p_id, MouseButton p_button) {
+	if (p_column != COLUMN_SPEAKER || p_button != MouseButton::LEFT || subtitle.is_null()) {
+		return;
+	}
+	speaker_picker_row = p_item->get_metadata(0);
+	const Ref<SubtitleSegment> segment = subtitle->get_segment(speaker_picker_row);
+	ERR_FAIL_COND(segment.is_null());
+	if (speaker_picker == nullptr) {
+		speaker_picker = memnew(EditorSpeakerPicker);
+		speaker_picker->connect(SNAME("speaker_picked"), callable_mp(this, &SubtitlesDock::_speaker_picked));
+		add_child(speaker_picker);
+	}
+	speaker_picker->popup_picker(segment->get_speaker());
+}
+
+void SubtitlesDock::_speaker_picked(const StringName &p_id) {
+	if (subtitle.is_null() || speaker_picker_row < 0 || speaker_picker_row >= subtitle->get_segment_count()) {
+		return;
+	}
+	const Ref<SubtitleSegment> segment = subtitle->get_segment(speaker_picker_row);
+	ERR_FAIL_COND(segment.is_null());
+	// The id, the stable key; the shown name follows from it.
+	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
+	undo_redo->create_action(TTR("Set Subtitle Segment Speaker"), UndoRedo::MERGE_DISABLE, subtitle.ptr());
+	undo_redo->force_fixed_history(); // The segment, without a path, would count as built into the edited scene.
+	undo_redo->add_do_property(segment.ptr(), SNAME("speaker"), p_id);
+	undo_redo->add_undo_property(segment.ptr(), SNAME("speaker"), segment->get_speaker());
+	undo_redo->add_do_method(subtitle.ptr(), "emit_changed");
+	undo_redo->add_undo_method(subtitle.ptr(), "emit_changed");
+	undo_redo->commit_action();
+}
+
 void SubtitlesDock::_tree_activated() {
 	TreeItem *item = tree->get_selected();
 	if (item == nullptr || subtitle.is_null()) {
@@ -1709,6 +1743,7 @@ SubtitlesDock::SubtitlesDock() {
 	tree->set_tooltip_text(TTR("Click a cell of a selected row to edit it. Double-click # to inspect all properties of the segment."));
 	tree->connect(SceneStringName(item_selected), callable_mp(this, &SubtitlesDock::_tree_selected));
 	tree->connect("item_edited", callable_mp(this, &SubtitlesDock::_tree_edited));
+	tree->connect("button_clicked", callable_mp(this, &SubtitlesDock::_tree_button_clicked));
 	// Deferred: inspecting the segment rebuilds editors while the tree emits.
 	tree->connect("item_activated", callable_mp(this, &SubtitlesDock::_tree_activated), CONNECT_DEFERRED);
 	tree->set_allow_rmb_select(true);

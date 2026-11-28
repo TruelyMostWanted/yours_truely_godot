@@ -81,6 +81,7 @@ class DialogueLineNode : public FlowNode {
 	Ref<Subtitle> subtitle;
 
 protected:
+	void _validate_property(PropertyInfo &p_property) const;
 	static void _bind_methods();
 	TypedArray<FlowPort> _create_input_ports() const override;
 	TypedArray<FlowPort> _create_output_ports() const override;

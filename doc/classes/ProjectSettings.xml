@@ -519,6 +519,9 @@
 		<member name="audio/mixer/default_layout" type="String" setter="" getter="" default="&quot;&quot;">
 			Path to an [AudioMixerLayout] that the [AudioMixerServer] loads on its first use (not in the editor). If empty, the mixer starts without channels; add them with [method AudioMixerServer.add_channel] or [method AudioMixerServer.apply_layout].
 		</member>
+		<member name="audio/subtitles/speakers" type="String" setter="" getter="" default="&quot;&quot;">
+			Path of a [DialogueSpeakers] resource with the speakers of the game: their names, portraits, colors and TTS personas. Loaded into [member SubtitleServer.speakers] when the engine starts and again when this setting changes.
+		</member>
 		<member name="audio/video/video_delay_compensation_ms" type="int" setter="" getter="" default="0">
 			Setting to hardcode audio delay when playing video. Best to leave this unchanged unless you know what you are doing.
 		</member>

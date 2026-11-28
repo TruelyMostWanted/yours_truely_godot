@@ -43,7 +43,7 @@
 		<method name="get_translated_speaker_name" qualifiers="const">
 			<return type="String" />
 			<description>
-				Returns [member speaker_name] translated with [member translation_context], or [member speaker] if [member speaker_name] is empty.
+				Returns [member speaker_name] translated with [member translation_context]. If [member speaker_name] is empty, returns [method DialogueSpeaker.get_translated_name] of the speaker with the id [member speaker] in [member SubtitleServer.speakers], or [member speaker] itself if there is none.
 			</description>
 		</method>
 		<method name="get_translated_text" qualifiers="const">
@@ -55,7 +55,7 @@
 	</methods>
 	<members>
 		<member name="speaker" type="StringName" setter="set_speaker" getter="get_speaker" default="&amp;&quot;&quot;">
-			The id of the speaker for the game, for example to pick a portrait, a color or a voice bus. Not shown to the player; see [member speaker_name].
+			The id of the speaker for the game, for example to pick a portrait, a color or a voice bus. Not shown to the player; see [member speaker_name]. The id of a [DialogueSpeaker] in [member SubtitleServer.speakers]; the Inspector suggests these ids.
 		</member>
 		<member name="speaker_name" type="String" setter="set_speaker_name" getter="get_speaker_name" default="&quot;&quot;">
 			The name of the speaker as shown to the player. Translatable, see [method get_translated_speaker_name].
