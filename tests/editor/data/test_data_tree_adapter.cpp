@@ -35,6 +35,7 @@ TEST_FORCE_LINK(test_data_tree_adapter)
 #ifdef TOOLS_ENABLED
 
 #include "core/io/csv_format.h"
+#include "core/io/data_field.h"
 #include "core/io/ini_format.h"
 #include "core/io/json.h"
 #include "core/io/xml_format.h"
@@ -501,6 +502,57 @@ TEST_CASE("[DataTreeAdapter][XML] A list keeps its paths down to one item") {
 	CHECK(adapter->remove(path_of({ "game", "units", "0" })) == OK);
 	CHECK(adapter->get_kind(path_of({ "game", "units" })) == Adapter::NODE_KIND_INDEXED);
 	CHECK(adapter->get_child_count(path_of({ "game", "units" })) == 1);
+}
+
+static Ref<DataField> make_field(const String &p_name, Variant::Type p_type, const Ref<DataSchema> &p_schema = Ref<DataSchema>()) {
+	Ref<DataField> field;
+	field.instantiate();
+	field->set_field_name(p_name);
+	field->set_value_type(p_type);
+	if (p_schema.is_valid()) {
+		field->set_schema(p_schema);
+	}
+	return field;
+}
+
+TEST_CASE("[DataTreeAdapter][XML] A data schema decides lists before the tag rules") {
+	Ref<XML> xml;
+	xml.instantiate();
+	REQUIRE(xml->parse("<game><items><thing/></items><units><unit/></units></game>") == OK);
+	const Ref<Adapter> adapter = Adapter::create_for(xml);
+	XMLTreeAdapter *xml_adapter = Object::cast_to<XMLTreeAdapter>(adapter.ptr());
+	REQUIRE(xml_adapter != nullptr);
+
+	// Without a schema: the plural rule.
+	CHECK(adapter->get_kind(path_of({ "game", "items" })) == Adapter::NODE_KIND_NAMED);
+	CHECK(adapter->get_kind(path_of({ "game", "units" })) == Adapter::NODE_KIND_INDEXED);
+
+	// The schema, mapped as XML validation maps it: `thing` is an Array field of <items>, `unit` a Dictionary field of
+	// <units>.
+	Ref<DataSchema> items_schema;
+	items_schema.instantiate();
+	items_schema->add_field(make_field("thing", Variant::ARRAY));
+	Ref<DataSchema> units_schema;
+	units_schema.instantiate();
+	units_schema->add_field(make_field("unit", Variant::DICTIONARY));
+	Ref<DataSchema> game_schema;
+	game_schema.instantiate();
+	game_schema->add_field(make_field("items", Variant::DICTIONARY, items_schema));
+	game_schema->add_field(make_field("units", Variant::DICTIONARY, units_schema));
+	xml_adapter->set_schema(game_schema);
+
+	CHECK(adapter->get_kind(path_of({ "game", "items" })) == Adapter::NODE_KIND_INDEXED);
+	CHECK(adapter->get_kind(path_of({ "game", "items", "0" })) == Adapter::NODE_KIND_VALUE);
+	CHECK(adapter->get_kind(path_of({ "game", "units" })) == Adapter::NODE_KIND_NAMED);
+	CHECK(adapter->get_kind(path_of({ "game", "units", "unit" })) == Adapter::NODE_KIND_VALUE);
+	// The schema also wins over two or more same-tag children.
+	CHECK(adapter->add_container(path_of({ "game", "units" }), "unit", Adapter::NODE_KIND_NAMED) == OK);
+	CHECK(adapter->get_kind(path_of({ "game", "units" })) == Adapter::NODE_KIND_NAMED);
+	CHECK(adapter->get_kind(path_of({ "game", "units", "unit[1]" })) == Adapter::NODE_KIND_VALUE);
+	// The shared helper takes the element's own schema.
+	const Dictionary units = Array(Dictionary(xml->get_data())[XML::KEY_CHILDREN])[1];
+	CHECK_FALSE(XMLTreeAdapter::is_list_element(units, units_schema));
+	CHECK(XMLTreeAdapter::is_list_element(units));
 }
 
 TEST_CASE("[DataTreeAdapter] Big data: the first page stays cheap") {

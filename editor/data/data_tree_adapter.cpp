@@ -32,10 +32,13 @@
 
 #include "core/core_string_names.h"
 #include "core/io/csv_format.h"
+#include "core/io/data_field.h"
+#include "core/io/data_schema.h"
 #include "core/io/ini_format.h"
 #include "core/io/json.h"
 #include "core/io/xml_format.h"
 #include "core/object/callable_mp.h"
+#include "editor/script/data_schema_lookup.h"
 
 // The index of p_segment in an Array of p_size items, -1 if it is not one.
 static int _data_tree_adapter_index_of(const String &p_segment, int p_size) {
@@ -927,7 +930,60 @@ Variant XMLTreeAdapter::_get_root() const {
 	return document;
 }
 
-bool XMLTreeAdapter::is_list_element(const Dictionary &p_element) {
+void XMLTreeAdapter::setup(const Ref<Resource> &p_resource) {
+	DataTreeAdapter::setup(p_resource);
+	if (p_resource.is_valid()) {
+		const Callable on_changed = callable_mp(this, &XMLTreeAdapter::_resource_changed);
+		if (!p_resource->is_connected(CoreStringName(changed), on_changed)) {
+			p_resource->connect(CoreStringName(changed), on_changed);
+		}
+		set_schema(EditorDataSchemaLookup::find_schema(p_resource->get_path()));
+	}
+}
+
+void XMLTreeAdapter::set_schema(const Ref<DataSchema> &p_schema) {
+	schema = p_schema;
+	schemas_dirty = true;
+}
+
+void XMLTreeAdapter::_map_schemas(const Dictionary &p_element, const Ref<DataSchema> &p_schema) const {
+	// As XML validation maps a schema: a field per child tag; an ARRAY field's element schema is the schema of
+	// each item, any other field's schema the schema of the child.
+	element_schemas.insert(p_element.id(), p_schema);
+	const Array children = p_element.get(XML::KEY_CHILDREN, Array());
+	for (const Variant &child : children) {
+		if (child.get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary child_element = child;
+		const Ref<DataField> field = p_schema->get_field(String(child_element.get(XML::KEY_NAME, String())));
+		if (field.is_null()) {
+			continue;
+		}
+		const Ref<DataSchema> child_schema = field->get_value_type() == Variant::ARRAY ? field->get_element_schema() : field->get_schema();
+		if (child_schema.is_valid()) {
+			_map_schemas(child_element, child_schema);
+		}
+	}
+}
+
+bool XMLTreeAdapter::_is_list(const Dictionary &p_element) const {
+	if (schema.is_null()) {
+		return is_list_element(p_element);
+	}
+	if (schemas_dirty) {
+		schemas_dirty = false;
+		element_schemas.clear();
+		const Ref<XML> xml = resource;
+		if (xml.is_valid() && xml->get_data().get_type() == Variant::DICTIONARY && !Dictionary(xml->get_data()).is_empty()) {
+			_map_schemas(xml->get_data(), schema);
+		}
+	}
+	const Ref<DataSchema> *element_schema = element_schemas.getptr(p_element.id());
+	return is_list_element(p_element, element_schema ? *element_schema : Ref<DataSchema>());
+}
+
+bool XMLTreeAdapter::is_list_element(const Dictionary &p_element, const Ref<DataSchema> &p_schema) {
 	if (!Dictionary(p_element.get(XML::KEY_ATTRIBUTES, Dictionary())).is_empty() || !String(p_element.get(XML::KEY_TEXT, String())).strip_edges().is_empty()) {
 		return false;
 	}
@@ -944,6 +1000,12 @@ bool XMLTreeAdapter::is_list_element(const Dictionary &p_element) {
 		}
 		tag = child_tag;
 		count++;
+	}
+	if (count > 0 && p_schema.is_valid()) {
+		const Ref<DataField> field = p_schema->get_field(tag);
+		if (field.is_valid()) {
+			return field->get_value_type() == Variant::ARRAY; // The schema wins.
+		}
 	}
 	if (count != 1) {
 		return count >= 2;
@@ -964,7 +1026,7 @@ String XMLTreeAdapter::_get_item_tag(const Dictionary &p_element) {
 	return "item";
 }
 
-void XMLTreeAdapter::_collect(const Variant &p_node, LocalVector<Child> &r_children) {
+void XMLTreeAdapter::_collect(const Variant &p_node, LocalVector<Child> &r_children) const {
 	if (p_node.get_type() == Variant::ARRAY) {
 		const Array document = p_node;
 		for (int i = 0; i < document.size(); i++) {
@@ -977,7 +1039,7 @@ void XMLTreeAdapter::_collect(const Variant &p_node, LocalVector<Child> &r_child
 	}
 	const Dictionary element = p_node;
 	const Array children = element.get(XML::KEY_CHILDREN, Array());
-	if (is_list_element(element)) {
+	if (_is_list(element)) {
 		int index = 0;
 		for (int i = 0; i < children.size(); i++) {
 			if (children[i].get_type() == Variant::DICTIONARY) {
@@ -1019,7 +1081,7 @@ DataTreeAdapter::NodeKind XMLTreeAdapter::_get_kind(const Variant &p_node) const
 		return NODE_KIND_VALUE; // An attribute or "#text".
 	}
 	const Dictionary element = p_node;
-	if (is_list_element(element)) {
+	if (_is_list(element)) {
 		return NODE_KIND_INDEXED;
 	}
 	if (!Dictionary(element.get(XML::KEY_ATTRIBUTES, Dictionary())).is_empty()) {
@@ -1141,7 +1203,7 @@ Error XMLTreeAdapter::add_value(const PackedStringArray &p_path, const String &p
 	}
 	const Dictionary element = node;
 	const String text = p_value;
-	if (is_list_element(element)) {
+	if (_is_list(element)) {
 		// A new item copies the tag of its siblings.
 		Ref<XMLElement> item;
 		item.instantiate();
@@ -1187,7 +1249,7 @@ Error XMLTreeAdapter::add_container(const PackedStringArray &p_path, const Strin
 		return ERR_INVALID_PARAMETER;
 	}
 	const Dictionary element = node;
-	const String tag = is_list_element(element) ? _get_item_tag(element) : p_key;
+	const String tag = _is_list(element) ? _get_item_tag(element) : p_key;
 	if (tag.is_empty()) {
 		return ERR_INVALID_PARAMETER;
 	}

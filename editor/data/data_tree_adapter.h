@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/io/data_schema.h"
 #include "core/io/resource.h"
 #include "core/object/ref_counted.h"
 #include "core/templates/hash_map.h"
@@ -275,7 +276,15 @@ class XMLTreeAdapter : public DataTreeAdapter {
 		int position = -1; // Index in the element's children Array (elements), or in its attributes.
 	};
 
-	static void _collect(const Variant &p_node, LocalVector<Child> &r_children);
+	Ref<DataSchema> schema;
+	mutable bool schemas_dirty = true;
+	mutable HashMap<const void *, Ref<DataSchema>> element_schemas; // Element Dictionary::id() -> its schema.
+
+	void _resource_changed() { schemas_dirty = true; }
+	void _map_schemas(const Dictionary &p_element, const Ref<DataSchema> &p_schema) const;
+	// is_list_element() with the schema of p_element.
+	bool _is_list(const Dictionary &p_element) const;
+	void _collect(const Variant &p_node, LocalVector<Child> &r_children) const;
 	static String _get_item_tag(const Dictionary &p_element);
 	bool _locate(const PackedStringArray &p_path, Variant &r_parent, Child &r_child) const;
 	Ref<XMLElement> _view(const Dictionary &p_element) const;
@@ -290,11 +299,19 @@ protected:
 	virtual void _decorate(Entry &r_entry, int p_depth) const override;
 
 public:
-	// True if p_element is a list: no attributes, no text, and its child elements all share one tag, with two or
-	// more of them, or with one whose tag the element's tag is the plural of (`<units><unit/></units>`:
-	// tag + "s", tag + "es", "y" -> "ies"; case-insensitive). So a list keeps its paths ("units/0") down to one item,
-	// and `<A><Test>42</Test></A>` stays a named element.
-	static bool is_list_element(const Dictionary &p_element);
+	// True if p_element is a list: no attributes, no text, and its child elements all share one tag. Then, in this
+	// order: p_schema (the schema of p_element, as XML validation maps it) decides when it has a field for the tag
+	// (type ARRAY: a list, any other type: named); else two or more children are a list; else one child is a list
+	// when the element's tag is its plural (`<units><unit/></units>`: tag + "s", tag + "es", "y" -> "ies";
+	// case-insensitive). So a list keeps its paths ("units/0") down to one item, and `<A><Test>42</Test></A>`
+	// stays a named element.
+	static bool is_list_element(const Dictionary &p_element, const Ref<DataSchema> &p_schema = Ref<DataSchema>());
+
+	// The schema that decides lists (see is_list_element()). setup() takes the schema listed for the file
+	// (project setting filesystem/data/schema_files).
+	void set_schema(const Ref<DataSchema> &p_schema);
+	Ref<DataSchema> get_schema() const { return schema; }
+	virtual void setup(const Ref<Resource> &p_resource) override;
 
 	// "This/Is/A/@Test".
 	virtual String format_path(const PackedStringArray &p_path) const override;
