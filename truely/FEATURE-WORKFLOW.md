@@ -72,6 +72,8 @@ gh pr create --base truely-godot-engine --head 03-feature-path-prefix-server --f
 gh pr merge --squash              # OHNE --delete-branch
 ```
 
+Die Beschreibung folgt der Vorlage [`.github/PULL_REQUEST_TEMPLATE.md`](../.github/PULL_REQUEST_TEMPLATE.md) (Layout aus `CONVENTIONS.md` 3.3).
+
 - **Den Feature-Branch niemals löschen**, weder auf GitHub noch lokal. Er bleibt immer bestehen.
 - **Truely-Version** ([`version.txt`](version.txt), SemVer): wird **einmal pro Release** erhöht, nicht in jedem Feature-Branch (sonst Konflikte zwischen parallelen Branches). Wer nach `truely-godot-engine` merged, vergleicht `truely/version.txt` mit dem letzten Release-Tag (`git describe --tags --match 'truely-v*' --abbrev=0`): Ist sie dort noch gleich, wird sie direkt danach in einem eigenen Commit erhöht (`Raise the Truely version to 0.2.0 (#N)`), **MINOR** für ein Feature, **PATCH** nur für Fehlerbehebungen (MINOR schließt PATCH ein: ist schon MINOR erhöht, nichts tun; war nur PATCH erhöht und kommt ein Feature dazu, auf MINOR umstellen). **MAJOR** bei einem neuen Godot-Major/Minor (4.8 → 4.9) oder inkompatiblen API-Änderungen. `release.ps1` und der Release-Workflow brechen ab, wenn der Tag der Version schon existiert.
 - In den Repo-Einstellungen ist „Automatically delete head branches“ (`delete_branch_on_merge`) **aus** und bleibt aus.
