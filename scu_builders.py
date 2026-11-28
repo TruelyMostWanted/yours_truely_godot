@@ -433,6 +433,9 @@ def generate_scu_files(max_includes_per_scu):
             "/core/templates",
             "/core/threads",
             "/core/variant",
+            # Truely: test folders of the fork (pipeline lint P13).
+            "/editor/audio",
+            "/editor/data",
             "/editor/export",
             "/editor/inspector",
             "/editor/scene",
