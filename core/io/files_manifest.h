@@ -33,6 +33,7 @@
 #include "core/io/load_progress.h"
 #include "core/io/resource.h"
 #include "core/io/resource_loader_constants.h"
+#include "core/templates/hash_map.h"
 #include "core/templates/hash_set.h"
 #include "core/templates/local_vector.h"
 
@@ -53,6 +54,14 @@ class FilesManifest : public Resource {
 	// Paths resolved for the threaded load (one folder scan per request, not per status call).
 	mutable PackedStringArray load_paths;
 	mutable bool load_paths_cached = false;
+	mutable bool load_active = false; // Between a request and the result.
+#ifndef THREADS_ENABLED
+	// Without threads the status calls load one file each; their results wait here for `load_threaded_get_resources()`.
+	mutable HashMap<String, Ref<Resource>> loaded_without_threads;
+	mutable int load_step = 0;
+	mutable bool load_use_sub_threads = false;
+	mutable ResourceLoaderConstants::CacheMode load_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE;
+#endif
 
 	static void _split_folder_path(const String &p_folder_path, String &r_base, Vector<String> &r_pattern);
 	void _collect_folder(const String &p_folder, int p_depth, PackedStringArray &r_paths) const;
@@ -111,10 +120,10 @@ public:
 	Dictionary load_resources(ResourceLoaderConstants::CacheMode p_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE, Error *r_error = nullptr) const;
 	// Starts a threaded load for every path, see `ResourceLoader::load_threaded_request()`.
 	Error load_threaded_request_resources(bool p_use_sub_threads = false, ResourceLoaderConstants::CacheMode p_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE) const;
-	// Progress of the threaded load: files loaded, total, and the ratio including the files still loading. Files
-	// that were not requested yet are requested: all at once with threads, one per call without threads (Web), so
-	// that calling it every frame advances the load step by step.
-	Ref<LoadProgress> load_threaded_get_status_resources(bool p_use_sub_threads = false, ResourceLoaderConstants::CacheMode p_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE) const;
+	// Progress of the threaded load: files loaded, total, and the ratio including the files still loading. A pure
+	// query with threads. Without threads (Web) a requested file loads in `load_threaded_get_resources()`, so each
+	// call loads one more requested file: calling it every frame advances the load step by step.
+	Ref<LoadProgress> load_threaded_get_status_resources() const;
 	// Returns path -> Resource of the requested files (waits for those still loading); paths that fail are left out.
 	Dictionary load_threaded_get_resources() const;
 };

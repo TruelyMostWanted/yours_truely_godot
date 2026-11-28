@@ -316,7 +316,13 @@ TEST_CASE("[ResourceLoader] Manifest load status: counts, ratio, stepwise and re
 	manifest->set_folder_paths(PackedStringArray({ root }));
 	manifest->set_extensions(PackedStringArray({ ".dbcount" }));
 
-	Ref<LoadProgress> status;
+	// A status call is a pure query: nothing is requested or loaded by it.
+	Ref<LoadProgress> status = manifest->load_threaded_get_status_resources();
+	CHECK(status->get_total_count() == 3);
+	CHECK(status->get_loaded_count() == 0);
+	CHECK(loader->loads.get() == 0);
+
+	REQUIRE(manifest->load_threaded_request_resources() == OK);
 	for (int frame = 0; frame < 2000; frame++) {
 		status = manifest->load_threaded_get_status_resources();
 		CHECK(status->get_total_count() == 3);
@@ -333,6 +339,11 @@ TEST_CASE("[ResourceLoader] Manifest load status: counts, ratio, stepwise and re
 
 	const Dictionary result = manifest->load_threaded_get_resources();
 	CHECK(result.size() == 3);
+	CHECK(loader->loads.get() == 3);
+
+	// After the result was taken, a status call does not request the files again.
+	status = manifest->load_threaded_get_status_resources();
+	CHECK(status->get_loaded_count() == 0);
 	CHECK(loader->loads.get() == 3);
 
 	const Ref<LoadProgress> empty = Ref<FilesManifest>(memnew(FilesManifest))->load_threaded_get_status_resources();

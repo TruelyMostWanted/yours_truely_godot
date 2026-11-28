@@ -352,19 +352,20 @@
 			<return type="Dictionary" />
 			<param index="0" name="manifest" type="FilesManifest" />
 			<description>
-				Returns the loaded resources of [param manifest] as a [Dictionary] from path to [Resource]. Files are requested by [method load_threaded_get_manifest_status] or [method load_threaded_request_manifest]; call this when the status is finished (a file that is still loading is waited for). Paths that failed to load are left out.
+				Returns the loaded resources of [param manifest] as a [Dictionary] from path to [Resource]. Files are requested by [method load_threaded_request_manifest]; call this when the status is finished (a file that is still loading is waited for). Paths that failed to load are left out.
 			</description>
 		</method>
 		<method name="load_threaded_get_manifest_status">
 			<return type="LoadProgress" />
 			<param index="0" name="manifest" type="FilesManifest" />
-			<param index="1" name="use_sub_threads" type="bool" default="false" />
-			<param index="2" name="cache_mode" type="int" enum="ResourceLoader.CacheMode" default="1" />
 			<description>
-				Returns the progress of loading the files of [param manifest] with threads: files loaded, total files and the ratio, which includes the progress of the files that are still loading. Files that were not requested yet are requested by this call, so [method load_threaded_request_manifest] is optional. Call it every frame (for example for a "n / X loaded" label and a progress bar), then use [method load_threaded_get_manifest] when [method LoadProgress.is_finished] is [code]true[/code].
-				[b]Note:[/b] Without thread support (the default Web export) every call loads one more file (a blocking step of one file) and counts it, so the progress advances from frame to frame instead of freezing for the whole manifest. Do not call [method load_threaded_request_manifest] there, as it loads all files at once.
+				Returns the progress of loading the files of [param manifest] that [method load_threaded_request_manifest] requested: files loaded, total files and the ratio, which includes the progress of the files that are still loading. It only asks: it never requests a file, and after [method load_threaded_get_manifest] took the resources it reports no loaded files (it does not load them again). Call it every frame (for example for a "n / X loaded" label and a progress bar), then use [method load_threaded_get_manifest] when [method LoadProgress.is_finished] is [code]true[/code].
+				[b]Note:[/b] Without thread support (the default Web export) [method load_threaded_request_manifest] loads nothing yet, and every call of this method loads one more of the requested files (a blocking step of one file) and counts it, so the progress advances from frame to frame instead of freezing for the whole manifest. [method load_threaded_get_manifest] loads the files that are left.
 				[codeblocks]
 				[gdscript]
+				func _ready():
+				    ResourceLoader.load_threaded_request_manifest(manifest)
+
 				func _process(_delta):
 				    var progress := ResourceLoader.load_threaded_get_manifest_status(manifest)
 				    $Label.text = "%d / %d loaded" % [progress.get_loaded_count(), progress.get_total_count()]

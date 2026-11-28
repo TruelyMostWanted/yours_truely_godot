@@ -417,57 +417,79 @@ Error FilesManifest::load_threaded_request_resources(bool p_use_sub_threads, Res
 	load_paths_cached = false; // A new request scans the folders again.
 	Error paths_error = OK;
 	const PackedStringArray &paths = _get_load_paths(&paths_error);
+	load_active = true;
+#ifdef THREADS_ENABLED
 	const Error request_error = load_threaded_request_paths(paths, _get_load_type_hint(), p_use_sub_threads, p_cache_mode);
 	return paths_error != OK ? paths_error : request_error;
+#else
+	// Without threads a request loads the file at once: `load_threaded_get_status_resources()` loads one file per call.
+	load_use_sub_threads = p_use_sub_threads;
+	load_cache_mode = p_cache_mode;
+	load_step = 0;
+	loaded_without_threads.clear();
+	return paths_error;
+#endif
 }
 
-Ref<LoadProgress> FilesManifest::load_threaded_get_status_resources(bool p_use_sub_threads, ResourceLoaderConstants::CacheMode p_cache_mode) const {
+Ref<LoadProgress> FilesManifest::load_threaded_get_status_resources() const {
 	const PackedStringArray &paths = _get_load_paths();
-	const String type_hint = _get_load_type_hint();
 	int loaded = 0;
 	float done = 0.0f;
-#ifndef THREADS_ENABLED
-	bool stepped = false;
-#endif
+#ifdef THREADS_ENABLED
+	// A pure query: files that were not requested (or were already taken) count as not loaded.
 	for (const String &path : paths) {
 		float file_progress = 0.0f;
-		ResourceLoader::ThreadLoadStatus status = ResourceLoader::load_threaded_get_status(path, &file_progress);
-		if (status == ResourceLoader::THREAD_LOAD_INVALID_RESOURCE) {
-#ifndef THREADS_ENABLED
-			if (stepped) {
-				continue; // One blocking load per call.
-			}
-			stepped = true;
-#endif
-			if (ResourceLoader::load_threaded_request(path, type_hint, p_use_sub_threads, p_cache_mode) != OK) {
-				loaded++; // Failed to start: done, the file is left out of the result.
-				done += 1.0f;
-				continue;
-			}
-			status = ResourceLoader::load_threaded_get_status(path, &file_progress);
-		}
+		const ResourceLoader::ThreadLoadStatus status = ResourceLoader::load_threaded_get_status(path, &file_progress);
 		if (status == ResourceLoader::THREAD_LOAD_IN_PROGRESS) {
-#ifdef THREADS_ENABLED
 			done += file_progress;
-			continue;
-#endif
+		} else if (status != ResourceLoader::THREAD_LOAD_INVALID_RESOURCE) {
+			loaded++; // Loaded or failed.
+			done += 1.0f;
 		}
-		// Loaded or failed; without threads a requested file completes in `load_threaded_get()`.
-		loaded++;
-		done += 1.0f;
 	}
+#else
+	if (load_active && load_step < paths.size()) {
+		// One blocking load per call, so calling this every frame advances the load step by step.
+		const String &path = paths[load_step++];
+		if (ResourceLoader::load_threaded_request(path, _get_load_type_hint(), load_use_sub_threads, load_cache_mode) == OK) {
+			const Ref<Resource> resource = ResourceLoader::load_threaded_get(path);
+			if (resource.is_valid()) {
+				loaded_without_threads[path] = resource;
+			}
+		}
+	}
+	loaded = load_active ? load_step : 0;
+	done = float(loaded);
+#endif
 	return LoadProgress::create(loaded, paths.size(), paths.is_empty() ? 1.0f : done / float(paths.size()));
 }
 
 Dictionary FilesManifest::load_threaded_get_resources() const {
 	Dictionary result;
-	for (const String &path : _get_load_paths()) {
+	const PackedStringArray &paths = _get_load_paths();
+#ifdef THREADS_ENABLED
+	for (const String &path : paths) {
 		const Ref<Resource> resource = ResourceLoader::load_threaded_get(path);
 		if (resource.is_valid()) {
 			result[path] = resource;
 		}
 	}
-	load_paths_cached = false; // The request is done.
+#else
+	for (const KeyValue<String, Ref<Resource>> &loaded : loaded_without_threads) {
+		result[loaded.key] = loaded.value;
+	}
+	for (int idx = load_step; load_active && idx < paths.size(); idx++) {
+		// Files the status calls did not reach yet.
+		const Ref<Resource> resource = ResourceLoader::load(paths[idx], _get_load_type_hint(), load_cache_mode);
+		if (resource.is_valid()) {
+			result[paths[idx]] = resource;
+		}
+	}
+	load_step = 0;
+	loaded_without_threads.clear();
+#endif
+	load_active = false; // The request is done: a status call afterwards loads nothing.
+	load_paths_cached = false;
 	return result;
 }
 

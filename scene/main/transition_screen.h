@@ -31,6 +31,7 @@
 #pragma once
 
 #include "core/io/load_progress.h"
+#include "core/io/resource_database.h"
 #include "core/variant/binder_common.h"
 #include "scene/main/canvas_layer.h"
 #include "scene/resources/packed_scene.h"
@@ -81,8 +82,10 @@ private:
 	float assets_progress = 0.0f;
 	int assets_loaded = 0;
 	int assets_total = 0;
-	PackedStringArray assets_steps; // Without threads: the files to load, one per frame.
-	int assets_step_index = 0;
+#ifndef THREADS_ENABLED
+	ResourceDatabase::PreloadSteps assets_steps; // Without threads: the files to load, one per frame.
+#endif
+	bool animation_done = false; // The animation player reported the end of the animation of the current phase.
 	double animation_length = -1.0; // Seconds of the animation that drives the current fade; negative: built-in fade.
 	bool intro_animated = false;
 	bool outro_started = false;
@@ -101,12 +104,16 @@ private:
 	void _set_progress(float p_progress);
 	void _update_progress();
 	double _play_animation(const StringName &p_animation);
+	void _animation_finished(const StringName &p_animation);
+	double _get_phase_ratio(double p_duration) const;
 	void _request_loading();
 	void _poll_loading();
 	void _fail_loading(Error p_error);
 	void _change_scene();
 	void _preload_progress(const Ref<Preloads> &p_preloads, const Ref<LoadProgress> &p_progress);
+#ifndef THREADS_ENABLED
 	void _step_assets();
+#endif
 	void _preload_finished(const Ref<Preloads> &p_preloads, int p_error);
 
 	static inline ObjectID running_screen; // The transition in progress (one at a time).

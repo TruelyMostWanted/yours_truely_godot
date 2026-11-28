@@ -520,6 +520,8 @@ TEST_CASE("[SceneTree][TransitionScreen] Animations replace the built-in fade; t
 	SceneTree::get_singleton()->process(0.5);
 	CHECK(screen->get_fade() == doctest::Approx(0.5));
 	SceneTree::get_singleton()->process(0.5);
+	CHECK(screen->get_fade() < 1.0f); // The phase ends when the player reports the end of the animation.
+	SceneTree::get_singleton()->process(0.0);
 	CHECK(screen->get_fade() == doctest::Approx(1.0));
 	CHECK(screen->get_state() == TransitionScreen::STATE_LOADED);
 

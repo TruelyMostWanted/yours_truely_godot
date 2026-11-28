@@ -142,7 +142,7 @@ void TransitionScreen::_process_transition(double p_delta) {
 	if (state == STATE_FADING_IN) {
 		phase_time += p_delta;
 		const double duration = animation_length >= 0.0 ? animation_length : fade_in_duration;
-		_set_fade(duration > 0.0 ? float(MIN(phase_time / duration, 1.0)) : 1.0f);
+		_set_fade(float(_get_phase_ratio(duration)));
 		if (fade < 1.0f) {
 			return;
 		}
@@ -197,7 +197,7 @@ void TransitionScreen::_process_transition(double p_delta) {
 		}
 		phase_time += p_delta;
 		const double duration = animation_length >= 0.0 ? animation_length : fade_out_duration;
-		_set_fade(duration > 0.0 ? float(1.0 - MIN(phase_time / duration, 1.0)) : 0.0f);
+		_set_fade(float(1.0 - _get_phase_ratio(duration)));
 		if (fade > 0.0f) {
 			return;
 		}
@@ -230,17 +230,18 @@ void TransitionScreen::_set_progress(float p_progress) {
 }
 
 void TransitionScreen::_update_progress() {
+	// Every file weighs the same (the scene is one file), so the bar agrees with the counts of `get_load_progress()`.
 	float sum = 0.0f;
-	int parts = 0;
+	int files = 0;
 	if (!loading_path.is_empty()) {
 		sum += scene_progress;
-		parts++;
+		files++;
 	}
 	if (preload_tracked) {
-		sum += assets_progress;
-		parts++;
+		sum += assets_progress * float(assets_total);
+		files += assets_total;
 	}
-	_set_progress(parts > 0 ? MIN(sum / float(parts), 0.99f) : 0.0f); // 1.0 only when everything is loaded.
+	_set_progress(files > 0 ? MIN(sum / float(files), 0.99f) : 0.0f); // 1.0 only when everything is loaded.
 }
 
 double TransitionScreen::_play_animation(const StringName &p_animation) {
@@ -254,6 +255,11 @@ double TransitionScreen::_play_animation(const StringName &p_animation) {
 	}
 	// The animation covers the screen itself: no canvas fade.
 	RenderingServer::get_singleton()->canvas_set_modulate(get_canvas(), Color(1, 1, 1, 1));
+	animation_done = false;
+	const Callable on_finished = callable_mp(this, &TransitionScreen::_animation_finished);
+	if (!player->is_connected(SNAME("animation_finished"), on_finished)) {
+		player->connect(SNAME("animation_finished"), on_finished);
+	}
 	player->play(p_animation);
 	player->advance(0.0); // The first frame is applied before the screen is drawn.
 	const double speed = Math::abs(double(player->get_speed_scale()));
@@ -261,22 +267,27 @@ double TransitionScreen::_play_animation(const StringName &p_animation) {
 	return speed > CMP_EPSILON ? length / speed : length;
 }
 
+void TransitionScreen::_animation_finished(const StringName &p_animation) {
+	animation_done = true;
+}
+
+// How far the phase is (0 to 1). An animated phase ends when the animation player reports the end of the animation
+// (its computed length is only the pace); a player that never reports it (stopped, other process mode) ends it
+// one second late.
+double TransitionScreen::_get_phase_ratio(double p_duration) const {
+	const double ratio = p_duration > 0.0 ? MIN(phase_time / p_duration, 1.0) : 1.0;
+	if (animation_length >= 0.0 && ratio >= 1.0 && !animation_done && phase_time < p_duration + 1.0) {
+		return 0.999;
+	}
+	return ratio;
+}
+
 void TransitionScreen::_request_loading() {
 	if (preload_assets.is_valid() && ResourceDatabase::get_singleton()) {
 		preload_pending = true;
 		preload_tracked = true;
-		assets_steps = preload_assets->get_paths();
-		const TypedArray<FilesManifest> manifests = preload_assets->get_manifests();
-		for (int idx = 0; idx < manifests.size(); idx++) {
-			const Ref<FilesManifest> manifest = manifests[idx];
-			if (manifest.is_valid()) {
-				assets_steps.append_array(manifest->get_paths());
-			}
-		}
-		assets_total = assets_steps.size();
-#ifdef THREADS_ENABLED
-		assets_steps.clear();
 		ResourceDatabase *database = ResourceDatabase::get_singleton();
+#ifdef THREADS_ENABLED
 		const Callable on_finished = callable_mp(this, &TransitionScreen::_preload_finished);
 		database->connect(SNAME("preload_finished"), on_finished);
 		database->connect(SNAME("preload_progress"), callable_mp(this, &TransitionScreen::_preload_progress));
@@ -287,7 +298,13 @@ void TransitionScreen::_request_loading() {
 			preload_tracked = false;
 			database->disconnect(SNAME("preload_finished"), on_finished);
 			database->disconnect(SNAME("preload_progress"), callable_mp(this, &TransitionScreen::_preload_progress));
+		} else {
+			assets_total = database->get_preload_progress()->get_total_count(); // Known before the first event.
 		}
+#else
+		// Collected once, with the type hints of the manifests; loaded one file per frame (see `_step_assets()`).
+		database->begin_preload_steps(preload_assets, assets_steps);
+		assets_total = assets_steps.paths.size();
 #endif
 	}
 	if (loading_path.is_empty()) {
@@ -350,29 +367,18 @@ void TransitionScreen::_preload_progress(const Ref<Preloads> &p_preloads, const 
 	}
 }
 
+#ifndef THREADS_ENABLED
 // Without threads the assets load one file per frame, so the progress advances while the screen is drawn.
 void TransitionScreen::_step_assets() {
-	ResourceDatabase *database = ResourceDatabase::get_singleton();
-	if (assets_step_index < assets_steps.size()) {
-		const String &path = assets_steps[assets_step_index];
-		if (!path.is_empty()) {
-			database->preload_resource(path);
-		}
-		assets_step_index++;
-		assets_loaded = assets_step_index;
-		assets_progress = float(assets_step_index) / float(assets_steps.size());
-	}
-	if (assets_step_index >= assets_steps.size()) {
-		// The direct resources and keys of the preloads; the files are stored already.
-		Ref<Preloads> rest;
-		rest.instantiate();
-		rest->set_resources(preload_assets->get_resources());
-		rest->set_keys(preload_assets->get_keys());
-		database->preload_from(rest, false);
-		preload_pending = false;
+	const bool more = ResourceDatabase::get_singleton()->step_preload(assets_steps);
+	assets_loaded = int(assets_steps.index);
+	assets_progress = assets_steps.paths.is_empty() ? 1.0f : float(assets_steps.index) / float(assets_steps.paths.size());
+	if (!more) {
+		preload_pending = false; // Failed files were reported by the loader; `preload_finished` carries the first error.
 		assets_progress = 1.0f;
 	}
 }
+#endif
 
 void TransitionScreen::_preload_finished(const Ref<Preloads> &p_preloads, int p_error) {
 	if (p_preloads != preload_assets) {

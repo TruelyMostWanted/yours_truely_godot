@@ -86,7 +86,7 @@
 		<method name="get_progress" qualifiers="const">
 			<return type="float" />
 			<description>
-				Returns the load progress from [code]0.0[/code] to [code]1.0[/code]: the average of the progress of [member next_scene] and of [member preload_assets], whichever are set. It is [code]1.0[/code] only when everything is loaded.
+				Returns the load progress from [code]0.0[/code] to [code]1.0[/code]: the progress of all files together, each file weighing the same ([member next_scene] is one file next to the files of [member preload_assets]), so it agrees with the counts of [method get_load_progress]. It is [code]1.0[/code] only when everything is loaded.
 			</description>
 		</method>
 		<method name="get_state" qualifiers="const">

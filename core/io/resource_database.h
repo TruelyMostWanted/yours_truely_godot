@@ -104,6 +104,7 @@ class ResourceDatabase : public Object {
 	Error _load_and_store(const String &p_requested, const String &p_type_hint);
 	void _apply_keys(const LocalVector<Pair<String, String>> &p_keys);
 	Error _collect(const Ref<Preloads> &p_preloads, Job *r_job);
+	Error _store_direct_resources(const Ref<Preloads> &p_preloads);
 	void _run_job(Job *p_job);
 	void _job_done(uint64_t p_job_id);
 	void _emit_preload_finished(const Ref<Preloads> &p_preloads, int p_error);
@@ -114,6 +115,21 @@ protected:
 
 public:
 	static ResourceDatabase *get_singleton();
+
+	// A preload split into steps of one file, for loading screens without threads (the default Web export).
+	// `begin_preload_steps()` collects the files once (type hints included), `step_preload()` loads the next one.
+	struct PreloadSteps {
+		Ref<Preloads> preloads;
+		LocalVector<Pair<String, String>> paths; // Requested path and type hint.
+		LocalVector<Pair<String, String>> keys;
+		uint32_t index = 0; // Files loaded so far.
+		Error error = OK; // The first error.
+	};
+	// Stores the direct resources of the preloads and collects its files.
+	void begin_preload_steps(const Ref<Preloads> &p_preloads, PreloadSteps &r_steps);
+	// Loads the next file. After the last file the keys are applied and `preload_finished` is emitted
+	// (deferred, like `preload_from()`). Returns true while files remain.
+	bool step_preload(PreloadSteps &r_steps);
 
 	// Loads everything the preloads name. With `p_use_threads` (and threads available), the paths load
 	// on a worker thread and the call returns at once; otherwise it returns when all paths are loaded.
