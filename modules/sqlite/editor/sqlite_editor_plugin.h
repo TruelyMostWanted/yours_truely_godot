@@ -35,21 +35,25 @@
 #include "scene/gui/box_container.h"
 
 class Button;
+class DatabaseEditor;
 class Label;
 class Tree;
 class TreeItem;
 
-// The tables of a database file in the Inspector: name, column count and row count. Edit opens SQLiteTableEditor.
+// The tables of a database file in the Inspector: name, column count and row count (the quick path).
+// "Open in Database" and the edit button of a table open the Database dock (#437).
 class SQLiteTableOverview : public VBoxContainer {
 	GDCLASS(SQLiteTableOverview, VBoxContainer);
 
 	String path;
 	Label *summary_label = nullptr;
 	Button *refresh_button = nullptr;
+	Button *open_button = nullptr;
 	Tree *tree = nullptr;
 
 	void _update();
 	void _count_rows();
+	void _open_in_dock(const String &p_table);
 	void _edit_table(TreeItem *p_item, int p_column, int p_id, MouseButton p_button);
 
 protected:
@@ -67,11 +71,19 @@ public:
 	virtual void parse_begin(Object *p_object) override;
 };
 
+// Opens database files in the Database dock; adds the table overview to the Inspector.
 class SQLiteEditorPlugin : public EditorPlugin {
 	GDCLASS(SQLiteEditorPlugin, EditorPlugin);
 
+	DatabaseEditor *database_editor = nullptr;
+
 public:
 	virtual String get_plugin_name() const override { return "SQLite"; }
+	virtual void edit(Object *p_object) override;
+	virtual bool handles(Object *p_object) const override;
+	virtual void make_visible(bool p_visible) override;
+	virtual String get_unsaved_status(const String &p_for_scene) const override;
+	virtual void save_external_data() override;
 
 	SQLiteEditorPlugin();
 };
