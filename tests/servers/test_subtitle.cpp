@@ -373,4 +373,73 @@ TEST_CASE("[Subtitle] Translatable strings for POT generation") {
 	CHECK(PackedStringArray(loaded_strings[0])[0] == "Where are we?");
 }
 
+TEST_CASE("[Subtitle] sync_times() maps two points linearly") {
+	Ref<Subtitle> subtitle;
+	subtitle.instantiate();
+	subtitle->add_segment(make_segment(10.0, 12.0, "a"));
+	subtitle->add_segment(make_segment(20.0, 22.0, "b"));
+	subtitle->add_segment(make_segment(30.0, 31.0, "c"));
+	// 10 -> 11 and 30 -> 51: scale 2, everything else in between.
+	subtitle->sync_times(10.0, 11.0, 30.0, 51.0);
+	CHECK(subtitle->get_segment(0)->get_start_time() == doctest::Approx(11.0));
+	CHECK(subtitle->get_segment(0)->get_end_time() == doctest::Approx(15.0));
+	CHECK(subtitle->get_segment(1)->get_start_time() == doctest::Approx(31.0));
+	CHECK(subtitle->get_segment(2)->get_end_time() == doctest::Approx(53.0));
+
+	// Equal times or reversed targets change nothing.
+	ERR_PRINT_OFF;
+	subtitle->sync_times(5.0, 1.0, 5.0, 2.0);
+	subtitle->sync_times(11.0, 20.0, 51.0, 10.0);
+	ERR_PRINT_ON;
+	CHECK(subtitle->get_segment(0)->get_start_time() == doctest::Approx(11.0));
+}
+
+TEST_CASE("[Subtitle] split_segment() and merge_segments()") {
+	Ref<Subtitle> subtitle;
+	subtitle.instantiate();
+	Ref<SubtitleSegment> segment = make_segment(0.0, 4.0, "First line\nSecond line");
+	segment->set_speaker("Ann");
+	subtitle->add_segment(segment);
+	subtitle->add_segment(make_segment(5.0, 6.0, "next"));
+
+	CHECK(subtitle->split_segment(0, 1.5) == 1);
+	REQUIRE(subtitle->get_segment_count() == 3);
+	CHECK(subtitle->get_segment(0)->get_end_time() == 1.5);
+	CHECK(subtitle->get_segment(0)->get_text() == "First line");
+	CHECK(subtitle->get_segment(1)->get_start_time() == 1.5);
+	CHECK(subtitle->get_segment(1)->get_end_time() == 4.0);
+	CHECK(subtitle->get_segment(1)->get_text() == "Second line");
+	CHECK(subtitle->get_segment(1)->get_speaker() == StringName("Ann"));
+	CHECK(subtitle->get_segment(1) != segment);
+
+	// One line: at the space nearest to the split; one word: all in the first part.
+	subtitle->add_segment(make_segment(10.0, 14.0, "one two three four"));
+	CHECK(subtitle->split_segment(3, 13.0) == 4);
+	CHECK(subtitle->get_segment(3)->get_text() == "one two three");
+	CHECK(subtitle->get_segment(4)->get_text() == "four");
+	subtitle->add_segment(make_segment(20.0, 22.0, "word"));
+	CHECK(subtitle->split_segment(5, 21.0) == 6);
+	CHECK(subtitle->get_segment(5)->get_text() == "word");
+	CHECK(subtitle->get_segment(6)->get_text().is_empty());
+
+	ERR_PRINT_OFF;
+	CHECK(subtitle->split_segment(0, 1.5) == -1); // At the end: not inside.
+	CHECK(subtitle->split_segment(99, 1.0) == -1);
+	CHECK(subtitle->merge_segments(0, 1) == ERR_INVALID_PARAMETER);
+	CHECK(subtitle->merge_segments(6) == ERR_INVALID_PARAMETER);
+	ERR_PRINT_ON;
+
+	// Merging undoes the split, the second segment's texts go on new lines.
+	CHECK(subtitle->merge_segments(0) == OK);
+	CHECK(subtitle->get_segment_count() == 6);
+	CHECK(subtitle->get_segment(0) == segment);
+	CHECK(subtitle->get_segment(0)->get_start_time() == 0.0);
+	CHECK(subtitle->get_segment(0)->get_end_time() == 4.0);
+	CHECK(subtitle->get_segment(0)->get_text() == "First line\nSecond line");
+	CHECK(subtitle->merge_segments(1, 3) == OK);
+	CHECK(subtitle->get_segment(1)->get_end_time() == 14.0);
+	CHECK(subtitle->get_segment(1)->get_text() == "next\none two three\nfour");
+	CHECK(subtitle->get_segment_count() == 4);
+}
+
 } // namespace TestSubtitle

@@ -173,6 +173,9 @@ public:
 	double get_start_time() const;
 	double get_end_time() const;
 	void shift_times(double p_seconds);
+	void sync_times(double p_first_time, double p_first_target, double p_second_time, double p_second_target);
+	int split_segment(int p_index, double p_time);
+	Error merge_segments(int p_index, int p_count = 2);
 
 	Ref<SubtitleValidation> validate(double p_max_characters_per_second = 20.0) const;
 	// POT entries [text, translation_context, "", comment] for ResourceTranslationParserPlugin.
