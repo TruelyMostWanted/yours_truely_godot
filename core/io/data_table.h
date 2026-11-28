@@ -40,8 +40,8 @@ class CSV;
 
 // A table whose columns are the fields of a DataSchema. Cells are stored per column (Structure of Arrays): a
 // packed array for int, float, String and bool columns, a Variant array for every other type. A cell that a
-// row does not have is absent (not null); the absent rows are a sorted list per column, so a column without
-// absent cells costs nothing extra. The protected virtuals are the storage: scripts, GDExtensions and C++
+// row does not have is absent (not null); a column marks absent cells with one bit per row, allocated with its
+// first absent cell. The protected virtuals are the storage: scripts, GDExtensions and C++
 // subclasses override them to expose the data of another source (a file, a database) without copying it.
 class DataTable : public Resource {
 	GDCLASS(DataTable, Resource);
@@ -61,7 +61,8 @@ private:
 		Vector<String> strings;
 		Vector<uint8_t> bools;
 		Vector<Variant> values;
-		LocalVector<int32_t> absent_rows;
+		LocalVector<uint64_t> absent_bits;
+		int absent_count = 0;
 
 		// Calls `p_function` with the array that stores the cells of this column type.
 		template <typename F>
@@ -114,9 +115,11 @@ private:
 	void _emit_columns_changed();
 	void _set_data(const Array &p_data);
 	Array _get_data() const;
+	Variant _build_column(int p_column) const;
 
 protected:
 	static void _bind_methods();
+	virtual Ref<Resource> _duplicate(const DuplicateParams &p_params) const override;
 
 	// Storage. The defaults keep the cells in memory and call a script or GDExtension override of the same name
 	// first. Indices are checked before; `_set_cell()` gets a value of the column type; `_insert_rows()` and
@@ -131,9 +134,6 @@ protected:
 	virtual void _remove_rows(int p_row, int p_count);
 	virtual void _insert_column(int p_column);
 	virtual void _remove_column(int p_column);
-	// The column as get_column() returns it. C++ subclasses with their own storage return _build_column().
-	virtual Variant _get_column(int p_column) const;
-	Variant _build_column(int p_column) const;
 
 	GDVIRTUAL0RC(int, _get_row_count)
 	GDVIRTUAL2RC(Variant, _get_cell, int, int)

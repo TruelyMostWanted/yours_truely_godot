@@ -66,48 +66,58 @@ static void _data_table_reset_cell(Vector<T> &r_data, int p_row) {
 	r_data.write[p_row] = T();
 }
 
-// Index of the first absent row >= p_row.
-static uint32_t _data_table_lower_bound(const LocalVector<int32_t> &p_rows, int p_row) {
-	uint32_t low = 0;
-	uint32_t high = p_rows.size();
-	while (low < high) {
-		const uint32_t mid = (low + high) / 2;
-		if (p_rows[mid] < p_row) {
-			low = mid + 1;
-		} else {
-			high = mid;
+// Absent cells of a column: one bit per row, allocated with the first absent cell (empty: every cell present),
+// plus the number of set bits. Bits past the last row are always 0.
+static bool _data_table_get_bit(const LocalVector<uint64_t> &p_bits, int p_row) {
+	return (p_bits[p_row >> 6] >> (p_row & 63)) & 1;
+}
+
+static void _data_table_set_bit(LocalVector<uint64_t> &r_bits, int p_row, bool p_value) {
+	const uint64_t mask = uint64_t(1) << (p_row & 63);
+	if (p_value) {
+		r_bits[p_row >> 6] |= mask;
+	} else {
+		r_bits[p_row >> 6] &= ~mask;
+	}
+}
+
+// Grows the bitset to hold `p_rows` rows; new words are 0.
+static void _data_table_reserve_bits(LocalVector<uint64_t> &r_bits, int p_rows) {
+	const uint32_t words = uint32_t((p_rows + 63) / 64);
+	if (r_bits.size() < words) {
+		r_bits.resize_initialized(words);
+	}
+}
+
+// Inserts `p_count` absent rows at `p_at` into a column of `p_old_rows` rows. O(p_count) when appending.
+static void _data_table_insert_absent(LocalVector<uint64_t> &r_bits, int &r_absent_count, int p_at, int p_count, int p_old_rows) {
+	_data_table_reserve_bits(r_bits, p_old_rows + p_count);
+	if (r_absent_count > 0) {
+		for (int row = p_old_rows - 1; row >= p_at; row--) {
+			_data_table_set_bit(r_bits, row + p_count, _data_table_get_bit(r_bits, row));
 		}
 	}
-	return low;
+	for (int row = p_at; row < p_at + p_count; row++) {
+		_data_table_set_bit(r_bits, row, true);
+	}
+	r_absent_count += p_count;
 }
 
-static bool _data_table_is_absent(const LocalVector<int32_t> &p_rows, int p_row) {
-	const uint32_t index = _data_table_lower_bound(p_rows, p_row);
-	return index < p_rows.size() && p_rows[index] == p_row;
-}
-
-// Marks rows [p_at, p_at + p_count) absent after shifting the rows at and after p_at by p_count.
-static void _data_table_insert_absent(LocalVector<int32_t> &r_rows, int p_at, int p_count) {
-	const uint32_t index = _data_table_lower_bound(r_rows, p_at);
-	const uint32_t old_size = r_rows.size();
-	const uint32_t count = p_count;
-	r_rows.resize(old_size + count);
-	for (uint32_t i = old_size; i > index; i--) {
-		r_rows[i - 1 + count] = r_rows[i - 1] + p_count;
+static void _data_table_remove_absent(LocalVector<uint64_t> &r_bits, int &r_absent_count, int p_at, int p_count, int p_old_rows) {
+	if (r_absent_count == 0) {
+		return;
 	}
-	for (uint32_t i = 0; i < count; i++) {
-		r_rows[index + i] = p_at + (int)i;
+	for (int row = p_at; row < p_at + p_count; row++) {
+		if (_data_table_get_bit(r_bits, row)) {
+			r_absent_count--;
+		}
 	}
-}
-
-static void _data_table_remove_absent(LocalVector<int32_t> &r_rows, int p_at, int p_count) {
-	const uint32_t from = _data_table_lower_bound(r_rows, p_at);
-	const uint32_t to = _data_table_lower_bound(r_rows, p_at + p_count);
-	const uint32_t removed = to - from;
-	for (uint32_t i = to; i < r_rows.size(); i++) {
-		r_rows[i - removed] = r_rows[i] - p_count;
+	for (int row = p_at; row < p_old_rows - p_count; row++) {
+		_data_table_set_bit(r_bits, row, _data_table_get_bit(r_bits, row + p_count));
 	}
-	r_rows.resize(r_rows.size() - removed);
+	for (int row = MAX(p_at, p_old_rows - p_count); row < p_old_rows; row++) {
+		_data_table_set_bit(r_bits, row, false);
+	}
 }
 
 // DataField.coerce(), and any data value as text in a String column.
@@ -238,7 +248,8 @@ bool DataTable::_has_cell(int p_row, int p_column) const {
 	if (GDVIRTUAL_CALL(_has_cell, p_row, p_column, ret)) {
 		return ret;
 	}
-	return !_data_table_is_absent(columns[p_column].absent_rows, p_row);
+	const Column &column = columns[p_column];
+	return column.absent_count == 0 || !_data_table_get_bit(column.absent_bits, p_row);
 }
 
 void DataTable::_set_cell(int p_row, int p_column, const Variant &p_value) {
@@ -247,9 +258,9 @@ void DataTable::_set_cell(int p_row, int p_column, const Variant &p_value) {
 	}
 	Column &column = columns[p_column];
 	column.set(p_row, p_value);
-	const uint32_t index = _data_table_lower_bound(column.absent_rows, p_row);
-	if (index < column.absent_rows.size() && column.absent_rows[index] == p_row) {
-		column.absent_rows.remove_at(index);
+	if (column.absent_count > 0 && _data_table_get_bit(column.absent_bits, p_row)) {
+		_data_table_set_bit(column.absent_bits, p_row, false);
+		column.absent_count--;
 	}
 }
 
@@ -259,9 +270,10 @@ void DataTable::_erase_cell(int p_row, int p_column) {
 	}
 	Column &column = columns[p_column];
 	column.visit([&](auto &r_data) { _data_table_reset_cell(r_data, p_row); });
-	const uint32_t index = _data_table_lower_bound(column.absent_rows, p_row);
-	if (index == column.absent_rows.size() || column.absent_rows[index] != p_row) {
-		column.absent_rows.insert(index, p_row);
+	_data_table_reserve_bits(column.absent_bits, row_count);
+	if (!_data_table_get_bit(column.absent_bits, p_row)) {
+		_data_table_set_bit(column.absent_bits, p_row, true);
+		column.absent_count++;
 	}
 }
 
@@ -271,7 +283,7 @@ void DataTable::_insert_rows(int p_row, int p_count) {
 	}
 	for (Column &column : columns) {
 		column.visit([&](auto &r_data) { _data_table_insert_cells(r_data, p_row, p_count); });
-		_data_table_insert_absent(column.absent_rows, p_row, p_count);
+		_data_table_insert_absent(column.absent_bits, column.absent_count, p_row, p_count, row_count);
 	}
 	row_count += p_count;
 }
@@ -282,7 +294,7 @@ void DataTable::_remove_rows(int p_row, int p_count) {
 	}
 	for (Column &column : columns) {
 		column.visit([&](auto &r_data) { _data_table_remove_cells(r_data, p_row, p_count); });
-		_data_table_remove_absent(column.absent_rows, p_row, p_count);
+		_data_table_remove_absent(column.absent_bits, column.absent_count, p_row, p_count, row_count);
 	}
 	row_count -= p_count;
 }
@@ -293,10 +305,12 @@ void DataTable::_insert_column(int p_column) {
 	}
 	Column &column = columns[p_column];
 	column.visit([&](auto &r_data) { r_data.resize_initialized(row_count); });
-	column.absent_rows.resize(row_count);
+	column.absent_bits.clear();
+	_data_table_reserve_bits(column.absent_bits, row_count);
 	for (int row = 0; row < row_count; row++) {
-		column.absent_rows[row] = row;
+		_data_table_set_bit(column.absent_bits, row, true);
 	}
+	column.absent_count = row_count;
 }
 
 void DataTable::_remove_column(int p_column) {
@@ -309,14 +323,8 @@ void DataTable::_remove_column(int p_column) {
 	column.strings.clear();
 	column.bools.clear();
 	column.values.clear();
-	column.absent_rows.clear();
-}
-
-Variant DataTable::_get_column(int p_column) const {
-	if (GDVIRTUAL_IS_OVERRIDDEN(_get_cell)) {
-		return _build_column(p_column);
-	}
-	return columns[p_column].get_data();
+	column.absent_bits.clear();
+	column.absent_count = 0;
 }
 
 Variant DataTable::_build_column(int p_column) const {
@@ -406,8 +414,7 @@ DataTable::ColumnCells DataTable::_take_cells(int p_column) const {
 
 void DataTable::_restore_cells(int p_column, const ColumnCells &p_cells, DataValidation *r_validation) {
 	const Variant::Type column_type = columns[p_column].type;
-	// From the last row: a restored cell is then the last absent row of the column.
-	for (int i = (int)p_cells.rows.size() - 1; i >= 0; i--) {
+	for (uint32_t i = 0; i < p_cells.rows.size(); i++) {
 		Variant typed;
 		if (_data_table_convert(column_type, p_cells.values[i], typed)) {
 			_set_cell(p_cells.rows[i], p_column, typed);
@@ -676,7 +683,11 @@ void DataTable::erase_cell(int p_row, int p_column) {
 
 Variant DataTable::get_column(int p_column) const {
 	ERR_FAIL_INDEX_V(p_column, get_column_count(), Variant());
-	return _get_column(p_column);
+	// The member storage holds the cells unless a script or a C++ subclass keeps its own rows.
+	if (!GDVIRTUAL_IS_OVERRIDDEN(_get_cell) && _get_row_count() == row_count) {
+		return columns[p_column].get_data();
+	}
+	return _build_column(p_column);
 }
 
 PackedInt32Array DataTable::find_rows(int p_column, const Variant &p_value) const {
@@ -734,14 +745,14 @@ void DataTable::sort_rows(int p_column, SortOrder p_order) {
 	sorter.compare.descending = p_order == SORT_ORDER_DESCENDING;
 	sorter.sort(order.ptr(), rows);
 
-	// Rewrite from the last row: every restored cell is then the last absent row of its column.
-	_remove_rows(0, rows);
-	_insert_rows(0, rows);
-	for (int row = rows - 1; row >= 0; row--) {
+	// Rewrite in place through _set_cell() and _erase_cell(), so sources keep their rows (no remove and insert).
+	for (int row = 0; row < rows; row++) {
 		const int source = order[row] * column_count;
 		for (int column = 0; column < column_count; column++) {
 			if (present[source + column]) {
 				_set_cell(row, column, cells[source + column]);
+			} else if (present[row * column_count + column]) {
+				_erase_cell(row, column);
 			}
 		}
 	}
@@ -758,8 +769,8 @@ Ref<DataValidation> DataTable::validate(const Ref<DataValidationOptions> &p_opti
 Ref<DataTable> DataTable::create_from_records(const Array &p_records) {
 	Ref<DataTable> table;
 	table.instantiate();
-	// Columns: the union of the keys in first-seen order. A column has the type of its values if all agree
-	// (int and float give float), else it holds any Variant.
+	// Columns: the union of the keys in first-seen order. A column has the type of its values if all agree,
+	// else it holds any Variant (so int and float values keep their type in a round trip).
 	LocalVector<StringName> names;
 	LocalVector<Variant::Type> types;
 	HashMap<StringName, uint32_t> indices;
@@ -783,17 +794,22 @@ Ref<DataTable> DataTable::create_from_records(const Array &p_records) {
 			if (column_type == value_type) {
 				continue;
 			}
-			const bool numbers = (column_type == Variant::INT || column_type == Variant::FLOAT) && (value_type == Variant::INT || value_type == Variant::FLOAT);
-			column_type = numbers ? Variant::FLOAT : Variant::NIL;
+			column_type = Variant::NIL;
 		}
 	}
 	for (uint32_t i = 0; i < names.size(); i++) {
 		table->add_column(names[i], types[i]);
 	}
 	for (const Variant &record : p_records) {
-		if (record.get_type() == Variant::DICTIONARY) {
-			table->add_row(record);
+		if (record.get_type() != Variant::DICTIONARY) {
+			continue;
 		}
+		// Keys as String, the column names (YAML and TOML records can have int keys).
+		Dictionary row;
+		for (const KeyValue<Variant, Variant> &entry : record.operator Dictionary()) {
+			row[String(entry.key)] = entry.value;
+		}
+		table->add_row(row);
 	}
 	return table;
 }
@@ -913,19 +929,35 @@ void DataTable::_set_data(const Array &p_data) {
 		const Array values = p_data[i + 1];
 		const PackedInt32Array absent = p_data[i + 2];
 		ERR_CONTINUE(values.size() != rows);
-		int absent_index = absent.size() - 1;
-		// From the last row: every restored cell is then the last absent row of its column.
-		for (int row = rows - 1; row >= 0; row--) {
-			if (absent_index >= 0 && absent[absent_index] == row) {
-				absent_index--;
+		const Variant::Type column_type = columns[column].type;
+		int absent_index = 0;
+		for (int row = 0; row < rows; row++) {
+			if (absent_index < absent.size() && absent[absent_index] == row) {
+				absent_index++;
 				continue;
 			}
+			// A bool column is saved as a PackedByteArray of 0 and 1.
+			const Variant &value = values[row];
 			Variant typed;
-			if (_data_table_convert(columns[column].type, values[row], typed)) {
+			if (column_type == Variant::BOOL && value.get_type() == Variant::INT) {
+				_set_cell(row, column, (int64_t)value != 0);
+			} else if (_data_table_convert(column_type, value, typed)) {
 				_set_cell(row, column, typed);
+			} else {
+				ERR_PRINT(vformat("Saved cell %d of column \"%s\" does not convert to %s; it is absent.", row, column_name, Variant::get_type_name(column_type)));
 			}
 		}
 	}
+}
+
+// The table's own schema (built-in) is copied with its fields, also by a shallow duplicate(): changing the columns
+// of a copy must not change the original. A schema saved in a file stays shared.
+Ref<Resource> DataTable::_duplicate(const DuplicateParams &p_params) const {
+	Ref<DataTable> copy = Resource::_duplicate(p_params);
+	if (copy.is_valid() && copy->schema == schema && schema->is_built_in()) {
+		copy->set_schema(schema->duplicate(true));
+	}
+	return copy;
 }
 
 void DataTable::_bind_methods() {

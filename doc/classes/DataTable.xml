@@ -5,7 +5,7 @@
 	</brief_description>
 	<description>
 		A [DataTable] holds rows and columns of data, for example the items of a game, the rows of a [CSV] file or the records of a JSON array. Each column is a [DataField] of [member schema]: its name, its [enum Variant.Type] and its rules. Cells are converted to the column type when they are set: text and numbers convert, as [code]"42"[/code] or [code]42.0[/code] in an [int] column, and any value becomes text in a [String] column.
-		Cells are stored per column (Structure of Arrays): an [int], [float], [String] or [bool] column is one packed array, any other type (and a column without a fixed type, [constant TYPE_NIL]) is an [Array]. [method get_column] returns that array without copying the cells, for fast reads in games.
+		Cells are stored per column (Structure of Arrays): an [int], [float], [String] or [bool] column is one packed array, any other type (and a column without a fixed type, [constant TYPE_NIL]) is an [Array]. [method get_column] returns a packed column without copying it, for fast reads in games.
 		A row does not need to have every cell. A cell that is not set is absent: [method has_cell] returns [code]false[/code], [method get_cell] returns [code]null[/code], and [method get_row] and [method to_records] leave its key out. So records with optional keys keep their shape in a round trip, and [code]null[/code] stays a value of its own in a column without a fixed type.
 		[codeblocks]
 		[gdscript]
@@ -140,7 +140,7 @@
 			<return type="DataTable" />
 			<param index="0" name="records" type="Array" />
 			<description>
-				Creates a table from an [Array] of [Dictionary] records, such as a parsed JSON, YAML or TOML array. The columns are the keys of all records, in the order they first appear. A column gets the type of its values if they all have the same type ([int] and [float] together give [float]); otherwise it holds any [Variant]. A key that a record does not have is an absent cell, so [method to_records] gives back the same records.
+				Creates a table from an [Array] of [Dictionary] records, such as a parsed JSON, YAML or TOML array. The columns are the keys of all records, in the order they first appear. A column gets the type of its values if they all have the same type; otherwise (also for [int] and [float] values together) it holds any [Variant], so every value keeps its type. Keys that are not [String]s (YAML and TOML can have [int] keys) become [String] column names. A key that a record does not have is an absent cell, so [method to_records] gives back the same records.
 			</description>
 		</method>
 		<method name="erase_cell">
@@ -179,7 +179,7 @@
 			<param index="0" name="column" type="int" />
 			<description>
 				Returns the cells of [param column] as one array: a [PackedInt64Array] for an [int] column, a [PackedFloat64Array] for a [float] column, a [PackedStringArray] for a [String] column, a [PackedByteArray] of [code]0[/code] and [code]1[/code] for a [bool] column, and an [Array] for any other column. Absent cells hold the default value of the type ([code]0[/code], [code]""[/code], [code]null[/code]).
-				For a table in memory the array is returned without copying the cells; it is copied only when one of them changes.
+				For a table in memory, a packed column is shared with the table until the next change of the column: that change copies the column once while you still hold the returned array. An [Array] column is always a copy. For a table with its own storage (see [method _get_cell]) the array is built from the cells.
 			</description>
 		</method>
 		<method name="get_column_count" qualifiers="const">

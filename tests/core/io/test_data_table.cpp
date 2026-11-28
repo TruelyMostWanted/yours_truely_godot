@@ -34,7 +34,11 @@ TEST_FORCE_LINK(test_data_table)
 
 #include "core/io/csv_format.h"
 #include "core/io/data_table.h"
+#include "core/io/dir_access.h"
+#include "core/io/resource_loader.h"
+#include "core/io/resource_saver.h"
 #include "core/object/callable_mp.h"
+#include "core/os/os.h"
 #include "tests/signal_watcher.h"
 
 namespace TestDataTable {
@@ -300,7 +304,8 @@ TEST_CASE("[DataTable] Records round trip") {
 	CHECK(table->get_column_name(3) == StringName("tag"));
 	CHECK(table->get_column_type(0) == Variant::INT);
 	CHECK(table->get_column_type(1) == Variant::STRING);
-	CHECK(table->get_column_type(2) == Variant::FLOAT);
+	// int and float values together: a Variant column, so every value keeps its type.
+	CHECK(table->get_column_type(2) == Variant::NIL);
 	CHECK(table->get_column_type(3) == Variant::NIL);
 	CHECK(table->get_column_type(4) == Variant::NIL);
 	CHECK_FALSE(table->has_cell(1, 1));
@@ -310,11 +315,22 @@ TEST_CASE("[DataTable] Records round trip") {
 	REQUIRE(result.size() == 3);
 	const Dictionary second = result[1];
 	CHECK(second.size() == 3);
-	CHECK(second["speed"] == Variant(2.0));
+	CHECK(second["speed"].get_type() == Variant::INT);
+	CHECK(second["speed"] == Variant(2));
+	const Dictionary first = result[0];
+	CHECK(first["speed"] == Variant(1.5));
 	const Dictionary third = result[2];
 	CHECK(third.has("note"));
 	CHECK(third["tag"] == Variant(7));
 	CHECK_FALSE(third.has("speed"));
+
+	// Keys that are not Strings (YAML, TOML) become String column names and keep their cells.
+	Array int_keys;
+	int_keys.push_back(Dictionary{ { 1, "x" }, { 2, true } });
+	Ref<DataTable> numbered = DataTable::create_from_records(int_keys);
+	CHECK(numbered->get_column_name(0) == StringName("1"));
+	CHECK(numbered->get_cell(0, 0) == Variant("x"));
+	CHECK(numbered->get_cell(0, 1) == Variant(true));
 }
 
 TEST_CASE("[DataTable] CSV conversion") {
@@ -368,17 +384,93 @@ TEST_CASE("[DataTable] Validate through the schema") {
 	CHECK(validation->get_issue_field(0) == StringName("hp"));
 }
 
-TEST_CASE("[DataTable] Stored data survives a copy") {
+static Ref<DataTable> make_mixed_units() {
 	Ref<DataTable> table = make_units();
 	table->add_column("extra");
+	table->add_column("alive", Variant::BOOL);
+	table->add_column("speed", Variant::FLOAT);
 	table->set_cell(2, 3, Vector2(1, 2));
-	Ref<DataTable> copy = table->duplicate(true);
+	table->set_cell(0, 4, true);
+	table->set_cell(1, 4, false);
+	table->set_cell(0, 5, 1.5);
+	return table;
+}
+
+static void check_mixed_units(const Ref<DataTable> &p_copy, const Ref<DataTable> &p_table) {
+	REQUIRE(p_copy.is_valid());
+	CHECK(p_copy->get_column_count() == 6);
+	CHECK(p_copy->get_row_count() == 3);
+	CHECK(p_copy->to_records() == p_table->to_records());
+	CHECK_FALSE(p_copy->has_cell(1, 2));
+	CHECK(p_copy->get_cell(2, 3) == Variant(Vector2(1, 2)));
+	CHECK(p_copy->get_cell(0, 4) == Variant(true));
+	CHECK(p_copy->get_cell(1, 4) == Variant(false));
+	CHECK_FALSE(p_copy->has_cell(2, 4));
+	CHECK(p_copy->get_cell(0, 5) == Variant(1.5));
+}
+
+TEST_CASE("[DataTable] Stored data survives a copy") {
+	Ref<DataTable> table = make_mixed_units();
+	check_mixed_units(table->duplicate(true), table);
+	check_mixed_units(table->duplicate(false), table);
+}
+
+TEST_CASE("[DataTable] Stored data survives save and load") {
+	Ref<DataTable> table = make_mixed_units();
+	DirAccess::make_dir_recursive_absolute(OS::get_singleton()->get_user_data_dir());
+	const String path = "user://test_data_table.tres";
+	REQUIRE(ResourceSaver::save(table, path) == OK);
+	Ref<DataTable> loaded = ResourceLoader::load(path, "", ResourceFormatLoader::CACHE_MODE_IGNORE);
+	check_mixed_units(loaded, table);
+	DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[DataTable] A shallow copy does not share the table's own schema") {
+	Ref<DataTable> table = make_units();
+	Ref<DataTable> copy = table->duplicate(false);
 	REQUIRE(copy.is_valid());
-	CHECK(copy->get_column_count() == 4);
-	CHECK(copy->get_row_count() == 3);
-	CHECK(copy->to_records() == table->to_records());
-	CHECK_FALSE(copy->has_cell(1, 2));
-	CHECK(copy->get_cell(2, 3) == Variant(Vector2(1, 2)));
+	CHECK(copy->get_schema() != table->get_schema());
+	copy->add_column("level", Variant::INT);
+	copy->rename_column(0, "key");
+	CHECK(table->get_column_count() == 3);
+	CHECK(table->get_column_name(0) == StringName("id"));
+
+	// A schema saved in a file is shared on purpose.
+	Ref<DataSchema> shared = DataSchema::create_from_dictionary(Dictionary{ { "id", (int)Variant::INT } });
+	shared->set_path_cache("res://shared_units_schema.tres");
+	table->set_schema(shared);
+	Ref<DataTable> shared_copy = table->duplicate(false);
+	CHECK(shared_copy->get_schema() == shared);
+}
+
+TEST_CASE("[DataTable] Absent cells across many rows") {
+	// More than one 64-bit word of absent bits: forward fill, insert and remove in the middle.
+	Ref<DataTable> table;
+	table.instantiate();
+	table->add_column("id", Variant::INT);
+	for (int i = 0; i < 130; i++) {
+		table->add_row(Dictionary{ { "id", i } });
+	}
+	table->add_column("hp", Variant::INT);
+	for (int i = 0; i < 130; i += 2) {
+		table->set_cell(i, 1, i);
+	}
+	CHECK(table->has_cell(64, 1));
+	CHECK_FALSE(table->has_cell(65, 1));
+	table->insert_row(1, Dictionary{ { "id", -1 } });
+	CHECK_FALSE(table->has_cell(1, 1));
+	CHECK(table->has_cell(3, 1));
+	CHECK(table->has_cell(129, 1));
+	CHECK_FALSE(table->has_cell(130, 1));
+	table->remove_rows(0, 70);
+	CHECK(table->get_row_count() == 61);
+	// Row 70 (id 69, odd) is now row 0; row 71 (id 70) is row 1.
+	CHECK_FALSE(table->has_cell(0, 1));
+	CHECK(table->get_cell(1, 1) == Variant(70));
+	CHECK(table->find_rows(1, 128) == PackedInt32Array{ 59 });
+	table->erase_cell(1, 1);
+	CHECK_FALSE(table->has_cell(1, 1));
+	CHECK(table->has_cell(3, 1));
 }
 
 // A table whose cells live row by row in its own storage, as a source of another format would keep them.
@@ -390,6 +482,9 @@ class RowStorageTable : public DataTable {
 	LocalVector<Vector<Cell>> cell_rows;
 	int storage_columns = 0;
 
+public:
+	int row_edits = 0;
+
 protected:
 	int _get_row_count() const override { return cell_rows.size(); }
 	Variant _get_cell(int p_row, int p_column) const override { return cell_rows[p_row][p_column].value; }
@@ -400,6 +495,7 @@ protected:
 	}
 	void _erase_cell(int p_row, int p_column) override { cell_rows[p_row].write[p_column] = Cell(); }
 	void _insert_rows(int p_row, int p_count) override {
+		row_edits++;
 		for (int i = 0; i < p_count; i++) {
 			Vector<Cell> cells;
 			cells.resize(storage_columns);
@@ -407,6 +503,7 @@ protected:
 		}
 	}
 	void _remove_rows(int p_row, int p_count) override {
+		row_edits++;
 		for (int i = 0; i < p_count; i++) {
 			cell_rows.remove_at(p_row);
 		}
@@ -423,11 +520,11 @@ protected:
 			cells.remove_at(p_column);
 		}
 	}
-	Variant _get_column(int p_column) const override { return _build_column(p_column); }
 };
 
 TEST_CASE("[DataTable] Storage virtuals") {
-	Ref<DataTable> table = memnew(RowStorageTable);
+	RowStorageTable *storage = memnew(RowStorageTable);
+	Ref<DataTable> table = storage;
 	table->add_column("id", Variant::INT);
 	table->add_row(Dictionary{ { "id", 2 } });
 	table->add_row();
@@ -439,7 +536,10 @@ TEST_CASE("[DataTable] Storage virtuals") {
 	CHECK_FALSE(table->has_cell(1, 1));
 	CHECK(table->get_column(1) == Variant(PackedInt64Array{ 2, 0, 1 }));
 
+	// sort_rows() rewrites the cells in place: the source keeps its rows.
+	const int row_edits = storage->row_edits;
 	table->sort_rows(1);
+	CHECK(storage->row_edits == row_edits);
 	CHECK(table->get_cell(0, 1) == Variant(1));
 	CHECK(table->get_cell(2, 0) == Variant("Knight"));
 	CHECK_FALSE(table->has_cell(2, 1));
