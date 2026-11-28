@@ -362,12 +362,24 @@ TEST_CASE("[ResourceLoader] Manifest paths are cached per request; the step meth
 	loader.instantiate();
 	ResourceLoader::add_resource_format_loader(loader);
 
+	// The files of a manifest have to exist: real (tiny) files, the loader fakes their content.
+	const String root = OS::get_singleton()->get_cache_path().path_join("test_manifest_steps");
+	DirAccess::make_dir_recursive_absolute(root);
+	PackedStringArray files;
+	for (int idx = 0; idx < 3; idx++) {
+		const String file = root.path_join(vformat("step%d.dbcount", idx));
+		Ref<FileAccess> f = FileAccess::open(file, FileAccess::WRITE);
+		REQUIRE(f.is_valid());
+		f->store_string("x");
+		files.push_back(file);
+	}
+
 	Ref<FilesManifest> manifest;
 	manifest.instantiate();
-	manifest->set_file_paths(PackedStringArray({ "res://step_a.dbcount", "res://step_b.dbcount" }));
+	manifest->set_file_paths(PackedStringArray({ files[0], files[1] }));
 	CHECK(manifest->load_threaded_get_status_resources()->get_total_count() == 2);
 	// A changed property resets the cache.
-	manifest->set_file_paths(PackedStringArray({ "res://step_a.dbcount", "res://step_b.dbcount", "res://step_c.dbcount" }));
+	manifest->set_file_paths(files);
 	CHECK(manifest->load_threaded_get_status_resources()->get_total_count() == 3);
 
 	REQUIRE(manifest->load_threaded_request_resources() == OK);
@@ -389,6 +401,10 @@ TEST_CASE("[ResourceLoader] Manifest paths are cached per request; the step meth
 	CHECK(loader->loads.get() == 3);
 
 	ResourceLoader::remove_resource_format_loader(loader);
+	for (const String &file : files) {
+		DirAccess::remove_absolute(file);
+	}
+	DirAccess::remove_absolute(root);
 }
 
 TEST_CASE("[ResourceDatabase] Preload steps load one file per step and finish once") {
