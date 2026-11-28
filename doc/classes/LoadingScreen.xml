@@ -26,6 +26,12 @@
 		</method>
 	</methods>
 	<members>
+		<member name="count_format" type="String" setter="set_count_format" getter="get_count_format" default="&quot;%d / %d&quot;">
+			Format of the text written to [member count_label]: the number of loaded files and the total, for example [code]"%d / %d loaded"[/code]. An empty format clears the text. The text stays empty until the total is known, so [code]"0 / 0"[/code] never shows.
+		</member>
+		<member name="count_label" type="NodePath" setter="set_count_label" getter="get_count_label" default="NodePath(&quot;&quot;)">
+			Path to the node that shows how many files are loaded ("3 / 12"): any node with a [code]text[/code] property. The counts come from [method TransitionScreen.get_load_progress]: [member TransitionScreen.next_scene] counts as one file next to the files of [member TransitionScreen.preload_assets].
+		</member>
 		<member name="progress_bar" type="NodePath" setter="set_progress_bar" getter="get_progress_bar" default="NodePath(&quot;&quot;)">
 			Path to a [Range] (for example a [ProgressBar]) that shows the load progress. It is set through [member Range.ratio], so any [member Range.min_value] and [member Range.max_value] work.
 		</member>
