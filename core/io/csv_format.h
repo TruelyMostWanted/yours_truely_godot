@@ -68,6 +68,11 @@ public:
 		Vector<int> invalid_columns; // Not a locale (e.g. an empty cell): ignored.
 		Vector<int> unknown_columns; // A locale whose language code is unknown: still a locale column.
 		bool has_known_language = false;
+
+		// A translation table, not data that happens to have a locale-like column ("unit,id,hp": "id" is
+		// Indonesian): every column after the key column is a locale of a known language, a `_` note or
+		// `?context` / `?plural`. The name of the key column does not matter (usually "keys").
+		bool is_translation_table() const { return has_known_language && invalid_columns.is_empty() && unknown_columns.is_empty(); }
 	};
 
 	// Checks a header row the way ResourceImporterCSVTranslation reads it: column 0 holds the keys,
