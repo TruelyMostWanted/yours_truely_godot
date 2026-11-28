@@ -65,23 +65,16 @@ TEST_CASE("[SubtitleEditorPlugin] Suggested time offset for files from video edi
 	CHECK(SubtitleEditorHelper::get_suggested_time_offset(subtitle) == -7200.0);
 }
 
-TEST_CASE("[SubtitleEditorPlugin] Sorted segments and a new segment, without changing the subtitle") {
+TEST_CASE("[SceneTree][SubtitleEditorPlugin] The Inspector is a read-only preview") {
 	Ref<Subtitle> subtitle;
 	subtitle.instantiate();
-	TypedArray<SubtitleSegment> unsorted;
-	unsorted.push_back(make_segment(4.0, 5.0));
-	unsorted.push_back(make_segment(1.0, 2.0));
-	subtitle->set_segments(unsorted);
-
-	const TypedArray<SubtitleSegment> sorted = SubtitleEditorHelper::get_sorted_segments(subtitle);
-	CHECK(Ref<SubtitleSegment>(sorted[0])->get_start_time() == 1.0);
-	CHECK(subtitle->get_segment(0)->get_start_time() == 4.0);
-
-	const TypedArray<SubtitleSegment> added = SubtitleEditorHelper::get_segments_with_new_segment(subtitle);
-	REQUIRE(added.size() == 3);
-	CHECK(Ref<SubtitleSegment>(added[2])->get_start_time() == 5.0);
-	CHECK(Ref<SubtitleSegment>(added[2])->get_end_time() == 7.0);
-	CHECK(subtitle->get_segment_count() == 2);
+	TypedArray<SubtitleSegment> segments;
+	segments.push_back(make_segment(3601.0, 3602.0));
+	subtitle->set_segments(segments);
+	SubtitleEditor *view = memnew(SubtitleEditor(subtitle));
+	// No buttons (no Add Segment, Sort by Time, offset fix or dock button): the Subtitles dock edits.
+	CHECK(view->find_children("*", "Button", true, false).is_empty());
+	memdelete(view);
 
 	CHECK(SubtitleEditorHelper::get_kind_name(SubtitleSegment::KIND_SOUND) == "Sound");
 }

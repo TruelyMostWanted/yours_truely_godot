@@ -41,7 +41,6 @@
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
-#include "scene/gui/flow_container.h"
 #include "scene/gui/label.h"
 #include "scene/gui/tree.h"
 #include "scene/main/subtitle_player.h"
@@ -92,33 +91,6 @@ double SubtitleEditorHelper::get_suggested_time_offset(const Ref<Subtitle> &p_su
 		return 0.0;
 	}
 	return -Math::floor(first_start / 3600.0) * 3600.0;
-}
-
-TypedArray<SubtitleSegment> SubtitleEditorHelper::get_sorted_segments(const Ref<Subtitle> &p_subtitle) {
-	ERR_FAIL_COND_V(p_subtitle.is_null(), TypedArray<SubtitleSegment>());
-	Ref<Subtitle> copy;
-	copy.instantiate();
-	copy->set_segments(p_subtitle->get_segments());
-	copy->sort_segments();
-	return copy->get_segments();
-}
-
-TypedArray<SubtitleSegment> SubtitleEditorHelper::get_segments_with_new_segment(const Ref<Subtitle> &p_subtitle) {
-	ERR_FAIL_COND_V(p_subtitle.is_null(), TypedArray<SubtitleSegment>());
-	TypedArray<SubtitleSegment> segments = p_subtitle->get_segments();
-	double start = 0.0;
-	for (int i = 0; i < segments.size(); i++) {
-		const Ref<SubtitleSegment> segment = segments[i];
-		if (segment.is_valid()) {
-			start = MAX(start, segment->get_end_time());
-		}
-	}
-	Ref<SubtitleSegment> segment;
-	segment.instantiate();
-	segment->set_start_time(start);
-	segment->set_end_time(start + 2.0);
-	segments.push_back(segment);
-	return segments;
 }
 
 String SubtitleEditorHelper::get_kind_name(SubtitleSegment::Kind p_kind) {
@@ -265,9 +237,8 @@ void SubtitleEditor::_update() {
 	summary_label->set_text(summary);
 
 	const double suggested = SubtitleEditorHelper::get_suggested_time_offset(subtitle);
-	offset_box->set_visible(suggested != 0.0 && subtitle->get_time_offset() == 0.0);
-	offset_label->set_text(TTR("The first segment starts after one hour, as in files exported from video editors."));
-	offset_button->set_text(vformat(TTR("Set Time Offset to -%s"), SubtitleFormatSRT::format_time(-suggested).get_slice(",", 0)));
+	offset_label->set_visible(suggested != 0.0 && subtitle->get_time_offset() == 0.0);
+	offset_label->set_text(vformat(TTR("The first segment starts after one hour, as in files exported from video editors. Set Time Offset to -%s to start at zero."), SubtitleFormatSRT::format_time(-suggested).get_slice(",", 0)));
 
 	// Subtitle files have no offset field: saving them moves the offset into the written times.
 	const String extension = subtitle->get_path().get_extension().to_lower();
@@ -342,47 +313,9 @@ void SubtitleEditor::_update() {
 	}
 }
 
-void SubtitleEditor::_commit_segments(const String &p_action, const TypedArray<SubtitleSegment> &p_segments) {
-	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
-	undo_redo->create_action(p_action, UndoRedo::MERGE_DISABLE, subtitle.ptr());
-	undo_redo->add_do_property(subtitle.ptr(), "segments", p_segments);
-	undo_redo->add_undo_property(subtitle.ptr(), "segments", subtitle->get_segments());
-	undo_redo->commit_action();
-}
-
-void SubtitleEditor::_apply_suggested_offset() {
-	const double suggested = SubtitleEditorHelper::get_suggested_time_offset(subtitle);
-	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
-	undo_redo->create_action(TTR("Set Subtitle Time Offset"), UndoRedo::MERGE_DISABLE, subtitle.ptr());
-	undo_redo->add_do_property(subtitle.ptr(), "time_offset", suggested);
-	undo_redo->add_undo_property(subtitle.ptr(), "time_offset", subtitle->get_time_offset());
-	undo_redo->commit_action();
-}
-
-void SubtitleEditor::_add_segment() {
-	_commit_segments(TTR("Add Subtitle Segment"), SubtitleEditorHelper::get_segments_with_new_segment(subtitle));
-}
-
-void SubtitleEditor::_sort_segments() {
-	_commit_segments(TTR("Sort Subtitle Segments"), SubtitleEditorHelper::get_sorted_segments(subtitle));
-}
-
-void SubtitleEditor::_item_activated() {
-	TreeItem *item = tree->get_selected();
-	if (item == nullptr) {
-		return;
-	}
-	const Ref<SubtitleSegment> segment = subtitle->get_segment(item->get_metadata(0));
-	if (segment.is_valid()) {
-		EditorInterface::get_singleton()->edit_resource(segment);
-	}
-}
-
 void SubtitleEditor::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_THEME_CHANGED: {
-			add_button->set_button_icon(get_editor_theme_icon(SNAME("Add")));
-			sort_button->set_button_icon(get_editor_theme_icon(SNAME("Sort")));
 			_queue_update();
 		} break;
 	}
@@ -396,16 +329,11 @@ SubtitleEditor::SubtitleEditor(const Ref<Subtitle> &p_subtitle) {
 	summary_label->set_custom_minimum_size(Size2(100, 0) * EDSCALE);
 	add_child(summary_label);
 
-	offset_box = memnew(VBoxContainer);
-	offset_box->hide();
-	add_child(offset_box);
 	offset_label = memnew(Label);
 	offset_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
-	offset_box->add_child(offset_label);
-	offset_button = memnew(Button);
-	offset_button->set_h_size_flags(SIZE_SHRINK_BEGIN);
-	offset_button->connect(SceneStringName(pressed), callable_mp(this, &SubtitleEditor::_apply_suggested_offset));
-	offset_box->add_child(offset_button);
+	offset_label->set_custom_minimum_size(Size2(100, 0) * EDSCALE);
+	offset_label->hide();
+	add_child(offset_label);
 
 	save_note_label = memnew(Label);
 	save_note_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
@@ -413,16 +341,7 @@ SubtitleEditor::SubtitleEditor(const Ref<Subtitle> &p_subtitle) {
 	save_note_label->hide();
 	add_child(save_note_label);
 
-	HFlowContainer *toolbar = memnew(HFlowContainer);
-	add_child(toolbar);
-	add_button = memnew(Button(TTR("Add Segment")));
-	add_button->set_tooltip_text(TTR("Add a two-second segment after the last one."));
-	add_button->connect(SceneStringName(pressed), callable_mp(this, &SubtitleEditor::_add_segment));
-	toolbar->add_child(add_button);
-	sort_button = memnew(Button(TTR("Sort by Time")));
-	sort_button->connect(SceneStringName(pressed), callable_mp(this, &SubtitleEditor::_sort_segments));
-	toolbar->add_child(sort_button);
-
+	// A read-only preview (#464): the segments are edited in the Subtitles dock, which opens with the subtitle.
 	tree = memnew(Tree);
 	tree->set_columns(COLUMN_MAX);
 	tree->set_hide_root(true);
@@ -439,9 +358,6 @@ SubtitleEditor::SubtitleEditor(const Ref<Subtitle> &p_subtitle) {
 	tree->set_column_expand(COLUMN_TEXT, true);
 	tree->set_column_clip_content(COLUMN_TEXT, true);
 	tree->set_custom_minimum_size(Size2(0, 240) * EDSCALE);
-	tree->set_tooltip_text(TTR("Double-click a row to edit the segment."));
-	// Deferred: editing the segment rebuilds the Inspector, which frees this tree while it emits.
-	tree->connect("item_activated", callable_mp(this, &SubtitleEditor::_item_activated), CONNECT_DEFERRED);
 	add_child(tree);
 
 	subtitle->connect_changed(callable_mp(this, &SubtitleEditor::_queue_update));

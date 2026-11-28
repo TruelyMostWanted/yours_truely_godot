@@ -37,7 +37,6 @@
 #include "scene/gui/box_container.h"
 #include "servers/subtitle/subtitle.h"
 
-class Button;
 class Label;
 class Tree;
 
@@ -47,10 +46,6 @@ public:
 	// The offset that moves a subtitle exported from a video editor (first segment at one hour or later) to zero:
 	// minus the whole hours of the first start time. Zero if the first segment starts before one hour.
 	static double get_suggested_time_offset(const Ref<Subtitle> &p_subtitle);
-	// The segments sorted by start time, then end time, without changing `p_subtitle`.
-	static TypedArray<SubtitleSegment> get_sorted_segments(const Ref<Subtitle> &p_subtitle);
-	// The segments with a new two-second segment after the last one.
-	static TypedArray<SubtitleSegment> get_segments_with_new_segment(const Ref<Subtitle> &p_subtitle);
 	// "0:05.500", or "1:00:05.500" from one hour on.
 	static String format_short_time(double p_seconds);
 	// The text as the player sees it (decorated by kind), with the speaker in front; one line.
@@ -69,7 +64,8 @@ public:
 	static HashMap<int, PackedStringArray> get_problems(const Ref<SubtitleValidation> &p_validation);
 };
 
-// The segments of a `Subtitle` as a table under its class header in the Inspector.
+// The segments of a `Subtitle` as a read-only table under its class header in the Inspector: summary, problems,
+// hints. Editing happens in the Subtitles dock, which opens with the subtitle (#464).
 class SubtitleEditor : public VBoxContainer {
 	GDCLASS(SubtitleEditor, VBoxContainer);
 
@@ -79,22 +75,13 @@ class SubtitleEditor : public VBoxContainer {
 	bool update_queued = false;
 
 	Label *summary_label = nullptr;
-	VBoxContainer *offset_box = nullptr;
 	Label *offset_label = nullptr;
-	Button *offset_button = nullptr;
 	Label *save_note_label = nullptr;
-	Button *add_button = nullptr;
-	Button *sort_button = nullptr;
 	Tree *tree = nullptr;
 
 	void _queue_update();
 	void _update();
 	void _watch_segments();
-	void _commit_segments(const String &p_action, const TypedArray<SubtitleSegment> &p_segments);
-	void _apply_suggested_offset();
-	void _add_segment();
-	void _sort_segments();
-	void _item_activated();
 
 protected:
 	void _notification(int p_what);
