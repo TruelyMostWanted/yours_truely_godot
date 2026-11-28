@@ -357,7 +357,8 @@ bool DatasetEditor::has_empty_table(Source p_source, const Variant &p_key, const
 }
 
 void DatasetEditor::read_rows(Source p_source, const Variant &p_key, const Variant &p_file_data, Array &r_records, PackedStringArray &r_names) {
-	r_records.clear();
+	// New arrays, never clear(): `r_records` may share its array with the data of a file (Array is a reference).
+	r_records = Array();
 	r_names.clear();
 	if (p_source == SOURCE_RECORDS) {
 		const Variant value = p_key.get_type() == Variant::NIL ? p_file_data : (p_file_data.get_type() == Variant::DICTIONARY ? Dictionary(p_file_data).get(p_key, Array()) : Variant());
@@ -1145,9 +1146,9 @@ void DatasetEditor::_build_view() {
 	csv.unref();
 	source = SOURCE_NONE;
 	table_key = Variant();
-	records.clear();
+	records = Array(); // Not clear(): the array is the one in the data of the shown file.
 	section_names.clear();
-	column_keys.clear();
+	column_keys = Array();
 	column_types.clear();
 	table_picker->clear();
 	OpenFile *file = _get_current_file();

@@ -246,6 +246,13 @@ TEST_CASE("[DatasetEditor] Rows are written back in place") {
 	CHECK(double(first["weight"]) == 1234567.123456789);
 	CHECK(int(Dictionary(items[1])["id"]) == 3);
 
+	// Reading another table must not empty the array of the first file (the records share it).
+	Ref<JSON> other = make_json(R"([{"id": 1}, {"id": 2}])");
+	Array shown;
+	DE::read_rows(DE::SOURCE_RECORDS, Variant(), other->get_data(), shown, names);
+	DE::read_rows(DE::SOURCE_RECORDS, "items", json->get_data(), shown, names);
+	CHECK(Array(other->get_data()).size() == 2);
+
 	// Deleting every row leaves an empty table that stays open.
 	const Variant emptied = DE::build_data(DE::SOURCE_RECORDS, "items", json->get_data(), Array(), names);
 	CHECK(DE::has_empty_table(DE::SOURCE_RECORDS, "items", emptied));
