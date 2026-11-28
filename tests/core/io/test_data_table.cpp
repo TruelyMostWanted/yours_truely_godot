@@ -523,7 +523,7 @@ protected:
 };
 
 TEST_CASE("[DataTable] Storage virtuals") {
-	RowStorageTable *storage = memnew(RowStorageTable);
+	Ref<RowStorageTable> storage = memnew(RowStorageTable);
 	Ref<DataTable> table = storage;
 	table->add_column("id", Variant::INT);
 	table->add_row(Dictionary{ { "id", 2 } });
