@@ -222,6 +222,11 @@ TEST_CASE("[DataTable] Column type changes and schema changes") {
 	CHECK_FALSE(table->has_cell(0, 1));
 	CHECK(table->get_schema()->get_field("name")->get_value_type() == Variant::INT);
 
+	// A field edited directly retypes its column.
+	table->get_schema()->get_field("id")->set_value_type(Variant::FLOAT);
+	CHECK(table->get_column_type(0) == Variant::FLOAT);
+	CHECK(table->get_cell(2, 0) == Variant(3.0));
+
 	// Fields added or removed in the schema add or remove columns; cells follow their field.
 	Ref<DataField> level;
 	level.instantiate();

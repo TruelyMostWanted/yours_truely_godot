@@ -104,6 +104,8 @@ private:
 	bool updating_schema = false;
 
 	void _schema_changed();
+	void _field_changed();
+	void _watch_field(const Ref<DataField> &p_field, bool p_watch);
 	void _insert_field(int p_column, const Ref<DataField> &p_field);
 	Ref<DataValidation> _sync_columns();
 	ColumnCells _take_cells(int p_column) const;

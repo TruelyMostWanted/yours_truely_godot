@@ -30,6 +30,7 @@
 
 #include "data_table.h"
 
+#include "core/core_string_names.h"
 #include "core/io/csv_format.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
@@ -343,6 +344,33 @@ void DataTable::_schema_changed() {
 	}
 }
 
+// A field edited directly (in the Inspector, or through DataSchema.get_field()) retypes or renames its column.
+void DataTable::_field_changed() {
+	if (updating_schema) {
+		return;
+	}
+	for (const Column &column : columns) {
+		if (column.field.is_valid() && column.field->get_value_type() != column.type) {
+			_schema_changed();
+			return;
+		}
+	}
+	_emit_columns_changed();
+}
+
+void DataTable::_watch_field(const Ref<DataField> &p_field, bool p_watch) {
+	if (p_field.is_null()) {
+		return;
+	}
+	const Callable callable = callable_mp(this, &DataTable::_field_changed);
+	const bool connected = p_field->is_connected(CoreStringName(changed), callable);
+	if (p_watch && !connected) {
+		p_field->connect_changed(callable);
+	} else if (!p_watch && connected) {
+		p_field->disconnect_changed(callable);
+	}
+}
+
 void DataTable::_emit_columns_changed() {
 	emit_signal(SNAME("columns_changed"));
 	emit_changed();
@@ -359,6 +387,7 @@ void DataTable::_insert_field(int p_column, const Ref<DataField> &p_field) {
 	column.type = p_field->get_value_type();
 	columns.insert(p_column, column);
 	_insert_column(p_column);
+	_watch_field(p_field, true);
 }
 
 DataTable::ColumnCells DataTable::_take_cells(int p_column) const {
@@ -426,6 +455,7 @@ Ref<DataValidation> DataTable::_sync_columns() {
 	while (!columns.is_empty()) {
 		const int last = get_column_count() - 1;
 		_remove_column(last);
+		_watch_field(columns[last].field, false);
 		columns.remove_at(last);
 	}
 	for (int i = 0; i < fields.size(); i++) {
@@ -434,6 +464,7 @@ Ref<DataValidation> DataTable::_sync_columns() {
 		column.type = column.field.is_valid() ? column.field->get_value_type() : Variant::NIL;
 		columns.push_back(column);
 		_insert_column(i);
+		_watch_field(column.field, true);
 		ColumnCells *source = nullptr;
 		for (ColumnCells &cells : old_cells) {
 			if (!cells.restored && cells.field == column.field) {
@@ -506,6 +537,7 @@ void DataTable::add_column(const StringName &p_name, Variant::Type p_type, int p
 void DataTable::remove_column(int p_column) {
 	ERR_FAIL_INDEX(p_column, get_column_count());
 	_remove_column(p_column);
+	_watch_field(columns[p_column].field, false);
 	columns.remove_at(p_column);
 	updating_schema = true;
 	schema->remove_field(p_column);
@@ -519,7 +551,9 @@ void DataTable::rename_column(int p_column, const StringName &p_name) {
 	ERR_FAIL_COND_MSG(columns[p_column].field.is_null(), "The column has no field in the schema.");
 	const int existing = find_column(p_name);
 	ERR_FAIL_COND_MSG(existing != -1 && existing != p_column, vformat("The table already has a column \"%s\".", p_name));
+	updating_schema = true;
 	columns[p_column].field->set_field_name(p_name);
+	updating_schema = false;
 	_emit_columns_changed();
 }
 
