@@ -32,6 +32,7 @@
 
 #include "core/object/object.h"
 #include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
 #include "core/variant/callable.h"
 #include "servers/subtitle/dialogue_speaker.h"
 #include "servers/subtitle/subtitle.h"
@@ -67,7 +68,9 @@ class SubtitleServer : public Object {
 	Ref<DialogueSpeakers> speakers;
 	String project_speakers_path;
 	bool project_settings_connected = false;
-	HashMap<StringName, Ref<TTSPersona>> registered_personas;
+	bool project_speakers_loaded = false;
+	HashMap<StringName, Ref<TTSPersona>> registered_personas; // Our copies at TTSServer, by speaker id.
+	HashSet<StringName> foreign_persona_ids; // Ids with a persona of the game: warned once.
 
 	AudioServer *callback_server = nullptr;
 	uint64_t last_tick_usec = 0;
@@ -84,8 +87,8 @@ class SubtitleServer : public Object {
 	void _end_track(int p_track_id, bool p_finished);
 
 	void _speakers_changed();
-	void _register_personas();
-	void _unregister_personas();
+	// Registers, replaces or removes our persona copies by difference; `p_clear` removes all of them.
+	void _update_personas(bool p_clear);
 	void _load_speakers_from(const String &p_path);
 	void _project_settings_changed();
 
@@ -117,8 +120,8 @@ public:
 
 	void set_speakers(const Ref<DialogueSpeakers> &p_speakers);
 	Ref<DialogueSpeakers> get_speakers() const;
-	// Loads the speakers of `audio/subtitles/speakers`. Called at startup (the first `catalogs_changed` of
-	// ResourceLocalizationServer, from `load_project_catalogs()`) and when the setting names another file.
+	// Loads the speakers of `audio/subtitles/speakers`. Called when the server starts; the server loads them again
+	// when the setting names another file (or the last load failed). Main thread only, like the whole speakers API.
 	void load_project_speakers();
 	// Inspector: the speaker ids as suggestions on a StringName property (in the editor only).
 	static void add_speaker_id_hint(PropertyInfo &r_property);

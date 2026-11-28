@@ -43,7 +43,7 @@ class DialogueSpeaker : public Resource {
 	StringName id;
 	String display_name;
 	String portrait_path;
-	Color color = Color(1, 1, 1);
+	Color color = Color(0, 0, 0, 0); // Alpha 0: no color of its own (the label's text color).
 	Ref<TTSPersona> tts_persona;
 
 	void _persona_changed();
@@ -52,6 +52,9 @@ protected:
 	static void _bind_methods();
 
 public:
+	// Speaker ids compare without case: SubRip writes `ANNA:`, WebVTT `<v Anna>`, a game `anna`.
+	static bool ids_match(const StringName &p_a, const StringName &p_b);
+
 	void set_id(const StringName &p_id);
 	StringName get_id() const;
 	void set_display_name(const String &p_display_name);
@@ -90,11 +93,11 @@ public:
 
 	void add_speaker(const Ref<DialogueSpeaker> &p_speaker);
 	void remove_speaker(const StringName &p_id);
-	// The first speaker with this id, or null.
+	// The first speaker with this id (case-insensitive), or null.
 	Ref<DialogueSpeaker> get_speaker(const StringName &p_id) const;
 	bool has_speaker(const StringName &p_id) const;
 	PackedStringArray get_ids() const;
-	// One message per problem (empty slot, empty id, id used twice); empty if the speakers are valid.
+	// One message per problem (empty slot, empty id, `,` or `:` in an id, id used twice ignoring case); empty if valid.
 	PackedStringArray validate() const;
 	// POT entries [text, context, "", comment] for ResourceTranslationParserPlugin: the display names.
 	TypedArray<PackedStringArray> get_translatable_strings() const;

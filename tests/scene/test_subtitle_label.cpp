@@ -69,6 +69,18 @@ static Ref<Subtitle> make_subtitle() {
 	return subtitle;
 }
 
+// The project's speakers: one speaker with a color (SubtitleLabel has no colors of its own, #483).
+static void set_speaker_color(const StringName &p_id, const Color &p_color) {
+	Ref<DialogueSpeaker> speaker;
+	speaker.instantiate();
+	speaker->set_id(p_id);
+	speaker->set_color(p_color);
+	Ref<DialogueSpeakers> speakers;
+	speakers.instantiate();
+	speakers->add_speaker(speaker);
+	SubtitleServer::get_singleton()->set_speakers(speakers);
+}
+
 static String sized(const SubtitleLabel *p_label, const String &p_text) {
 	return vformat("[font_size=%d]", p_label->get_display_font_size()) + p_text + "[/font_size]";
 }
@@ -92,9 +104,7 @@ TEST_CASE("[SceneTree][SubtitleLabel] Follows the player, colors speakers, honor
 	CHECK(label->is_visible());
 	CHECK(label->get_display_font_size() == 32);
 
-	TypedDictionary<StringName, Color> colors;
-	colors[StringName("Anna")] = Color(1, 0, 0);
-	label->set_speaker_colors(colors);
+	set_speaker_color("Anna", Color(1, 0, 0));
 	CHECK(label->get_text() == sized(label, "[color=#ff0000ff]Anna: Hello[/color]"));
 	label->set_show_speaker_names(false);
 	CHECK(label->get_text() == sized(label, "[color=#ff0000ff]Hello[/color]"));
@@ -134,6 +144,7 @@ TEST_CASE("[SceneTree][SubtitleLabel] Follows the player, colors speakers, honor
 		}
 	}
 
+	SubtitleServer::get_singleton()->set_speakers(Ref<DialogueSpeakers>());
 	memdelete(scene);
 	server->set_captions_enabled(captions);
 }
@@ -285,9 +296,7 @@ TEST_CASE("[SceneTree][SubtitleLabel] The editor shows a preview line while noth
 	label->set_preview_speaker("Anna");
 	label->set_preview_text("Hello [there]");
 	CHECK(label->get_text() == sized(label, "Anna: Hello [lb]there]"));
-	TypedDictionary<StringName, Color> colors;
-	colors[StringName("Anna")] = Color(1, 0, 0);
-	label->set_speaker_colors(colors);
+	set_speaker_color("Anna", Color(1, 0, 0));
 	label->set_show_speaker_names(false);
 	CHECK(label->get_text() == sized(label, "[color=#ff0000ff]Hello [lb]there][/color]"));
 
@@ -295,6 +304,7 @@ TEST_CASE("[SceneTree][SubtitleLabel] The editor shows a preview line while noth
 	label->refresh(); // At runtime there is no preview.
 	CHECK(label->get_text().is_empty());
 	CHECK_FALSE(label->is_visible());
+	SubtitleServer::get_singleton()->set_speakers(Ref<DialogueSpeakers>());
 	memdelete(label);
 }
 #endif // TOOLS_ENABLED
@@ -347,24 +357,21 @@ TEST_CASE("[SceneTree][SubtitleLabel] Names and colors come from the project's s
 
 	Ref<DialogueSpeaker> anna;
 	anna.instantiate();
-	anna->set_id("Anna");
+	anna->set_id("ANNA"); // Ids ignore case: the segment says "Anna".
 	anna->set_display_name("Anna Smith");
 	Ref<DialogueSpeakers> speakers;
 	speakers.instantiate();
 	speakers->add_speaker(anna);
 	SubtitleServer *server = SubtitleServer::get_singleton();
 	server->set_speakers(speakers); // speakers_changed: the label rebuilds by itself.
-	CHECK(label->get_text() == sized(label, "Anna Smith: Hello")); // White, the default color, adds no tag.
+	CHECK(label->get_text() == sized(label, "Anna Smith: Hello")); // Alpha 0, the default color, adds no tag.
 	anna->set_color(Color(0, 1, 0));
 	CHECK(label->get_text() == sized(label, "[color=#00ff00ff]Anna Smith: Hello[/color]"));
-
-	TypedDictionary<StringName, Color> colors;
-	colors[StringName("Anna")] = Color(1, 0, 0);
-	label->set_speaker_colors(colors); // The label's own colors come first.
-	CHECK(label->get_text() == sized(label, "[color=#ff0000ff]Anna Smith: Hello[/color]"));
+	anna->set_color(Color(1, 1, 1)); // White is a color like any other.
+	CHECK(label->get_text() == sized(label, "[color=#ffffffff]Anna Smith: Hello[/color]"));
 
 	server->set_speakers(Ref<DialogueSpeakers>());
-	CHECK(label->get_text() == sized(label, "[color=#ff0000ff]Anna: Hello[/color]"));
+	CHECK(label->get_text() == sized(label, "Anna: Hello"));
 	memdelete(label);
 	memdelete(player);
 }

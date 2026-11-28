@@ -150,18 +150,11 @@ String SubtitleLabel::_decorate_line(const String &p_line, const StringName &p_s
 		if (show_speaker_names) {
 			line = p_display_speaker.replace("[", "[lb]") + ": " + line;
 		}
-		Color line_color(1, 1, 1);
-		if (speaker_colors.has(p_speaker)) {
-			line_color = speaker_colors.get(p_speaker, Color());
-		} else if (SubtitleServer::get_singleton() != nullptr) {
-			// The project's speakers (#483); white, their default, keeps the label's font color.
-			const Ref<DialogueSpeaker> known = SubtitleServer::get_singleton()->get_speakers()->get_speaker(p_speaker);
-			if (known.is_valid()) {
-				line_color = known->get_color();
-			}
-		}
-		if (speaker_colors.has(p_speaker) || line_color != Color(1, 1, 1)) {
-			line = "[color=#" + line_color.to_html() + "]" + line + "[/color]";
+		// The project's speakers (#483). A color with alpha 0 (their default) keeps the label's font color.
+		const SubtitleServer *server = SubtitleServer::get_singleton();
+		const Ref<DialogueSpeaker> known = server != nullptr ? server->get_speakers()->get_speaker(p_speaker) : Ref<DialogueSpeaker>();
+		if (known.is_valid() && known->get_color().a > 0.0f) {
+			line = "[color=#" + known->get_color().to_html() + "]" + line + "[/color]";
 		}
 	}
 	return line;
@@ -248,15 +241,6 @@ NodePath SubtitleLabel::get_player() const {
 	return player;
 }
 
-void SubtitleLabel::set_speaker_colors(const TypedDictionary<StringName, Color> &p_colors) {
-	speaker_colors = p_colors;
-	refresh();
-}
-
-TypedDictionary<StringName, Color> SubtitleLabel::get_speaker_colors() const {
-	return speaker_colors;
-}
-
 void SubtitleLabel::set_show_speaker_names(bool p_enabled) {
 	show_speaker_names = p_enabled;
 	refresh();
@@ -305,8 +289,6 @@ String SubtitleLabel::get_preview_text() const {
 void SubtitleLabel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_player", "path"), &SubtitleLabel::set_player);
 	ClassDB::bind_method(D_METHOD("get_player"), &SubtitleLabel::get_player);
-	ClassDB::bind_method(D_METHOD("set_speaker_colors", "colors"), &SubtitleLabel::set_speaker_colors);
-	ClassDB::bind_method(D_METHOD("get_speaker_colors"), &SubtitleLabel::get_speaker_colors);
 	ClassDB::bind_method(D_METHOD("set_show_speaker_names", "enabled"), &SubtitleLabel::set_show_speaker_names);
 	ClassDB::bind_method(D_METHOD("is_showing_speaker_names"), &SubtitleLabel::is_showing_speaker_names);
 	ClassDB::bind_method(D_METHOD("set_font_size", "size"), &SubtitleLabel::set_font_size);
@@ -322,7 +304,6 @@ void SubtitleLabel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("refresh"), &SubtitleLabel::refresh);
 
 	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "player", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "SubtitlePlayer"), "set_player", "get_player");
-	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "speaker_colors", PROPERTY_HINT_DICTIONARY_TYPE, "StringName;Color"), "set_speaker_colors", "get_speaker_colors");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "show_speaker_names"), "set_show_speaker_names", "is_showing_speaker_names");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "font_size", PROPERTY_HINT_RANGE, "1,256,1,or_greater,suffix:px"), "set_font_size", "get_font_size");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "follow_accessibility_settings"), "set_follow_accessibility_settings", "is_following_accessibility_settings");

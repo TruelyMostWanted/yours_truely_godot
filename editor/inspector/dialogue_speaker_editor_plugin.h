@@ -33,17 +33,22 @@
 #include "editor/inspector/editor_inspector.h"
 #include "scene/gui/box_container.h"
 
+class ColorRect;
 class Label;
 class TextureRect;
 
-// Read-only preview at the top of the Inspector: the portrait and the colored name of a DialogueSpeaker,
-// or the validation of a DialogueSpeakers. Follows `changed` of the resource.
+// Read-only preview at the top of the Inspector, without buttons. A DialogueSpeaker: portrait, name (theme font
+// color) with a color swatch, id and TTS persona, a warning without an id. A DialogueSpeakers: whether it is the
+// project's list and its validation. Follows `changed` of the resource.
 class DialogueSpeakerPreview : public HBoxContainer {
 	GDCLASS(DialogueSpeakerPreview, HBoxContainer);
 
 	Ref<Resource> resource;
 	TextureRect *portrait = nullptr;
-	Label *info = nullptr;
+	ColorRect *swatch = nullptr;
+	Label *title = nullptr;
+	Label *details = nullptr;
+	Label *warning = nullptr;
 
 	void _update();
 
@@ -54,10 +59,17 @@ public:
 	DialogueSpeakerPreview(const Ref<Resource> &p_resource);
 };
 
+// Also refreshes the speaker id suggestions of the inspected object when the project's speakers change.
 class EditorInspectorPluginDialogueSpeaker : public EditorInspectorPlugin {
 	GDCLASS(EditorInspectorPluginDialogueSpeaker, EditorInspectorPlugin);
+
+	bool refresh_queued = false;
+	void _speakers_changed(const Ref<Resource> &p_speakers);
+	void _refresh_id_hints();
 
 public:
 	virtual bool can_handle(Object *p_object) override;
 	virtual void parse_begin(Object *p_object) override;
+
+	EditorInspectorPluginDialogueSpeaker();
 };

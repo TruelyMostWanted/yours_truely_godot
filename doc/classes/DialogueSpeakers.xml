@@ -40,14 +40,14 @@
 		<method name="get_ids" qualifiers="const">
 			<return type="PackedStringArray" />
 			<description>
-				Returns the ids of the speakers in list order, each once, without empty ids. The Inspector suggests them for speaker properties.
+				Returns the ids of the speakers as written, in list order, each once (ignoring case), without empty ids. The Inspector suggests them for speaker properties.
 			</description>
 		</method>
 		<method name="get_speaker" qualifiers="const">
 			<return type="DialogueSpeaker" />
 			<param index="0" name="id" type="StringName" />
 			<description>
-				Returns the first speaker with the id [param id], or [code]null[/code] if there is none or [param id] is empty.
+				Returns the first speaker whose id matches [param id] ignoring case ([code]"ANNA"[/code] finds [code]anna[/code]), or [code]null[/code] if there is none or [param id] is empty.
 			</description>
 		</method>
 		<method name="get_translatable_strings" qualifiers="const">
@@ -60,20 +60,20 @@
 			<return type="bool" />
 			<param index="0" name="id" type="StringName" />
 			<description>
-				Returns [code]true[/code] if a speaker has the id [param id].
+				Returns [code]true[/code] if a speaker has the id [param id], ignoring case.
 			</description>
 		</method>
 		<method name="remove_speaker">
 			<return type="void" />
 			<param index="0" name="id" type="StringName" />
 			<description>
-				Removes the first speaker with the id [param id]. Does nothing if there is none.
+				Removes the first speaker with the id [param id] (ignoring case). Does nothing if there is none.
 			</description>
 		</method>
 		<method name="validate" qualifiers="const">
 			<return type="PackedStringArray" />
 			<description>
-				Returns one message per problem: an empty slot, a speaker without an id, or an id used by two speakers. Returns an empty array if the list is valid.
+				Returns one message per problem: an empty slot, a speaker without an id, an id with [code],[/code] or [code]:[/code] (they separate the Inspector's suggestions), or an id used by two speakers (ignoring case). Returns an empty array if the list is valid. Segments with unknown speaker ids are reported by [method Subtitle.validate] ([member SubtitleValidation.unknown_speaker_segments]).
 			</description>
 		</method>
 	</methods>

@@ -32,6 +32,10 @@
 
 TEST_FORCE_LINK(test_dialogue_speakers)
 
+#include "core/config/project_settings.h"
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
+#include "core/io/resource_saver.h"
 #include "core/string/translation.h"
 #include "core/string/translation_domain.h"
 #include "core/string/translation_server.h"
@@ -39,6 +43,7 @@ TEST_FORCE_LINK(test_dialogue_speakers)
 #include "servers/subtitle/subtitle_server.h"
 #include "servers/tts/tts_server.h"
 #include "tests/signal_watcher.h"
+#include "tests/test_utils.h"
 
 namespace TestDialogueSpeakers {
 
@@ -53,7 +58,7 @@ static Ref<DialogueSpeaker> make_speaker(const StringName &p_id, const String &p
 
 TEST_CASE("[DialogueSpeaker] Properties, translated name in the subtitles channel, lazy portrait") {
 	Ref<DialogueSpeaker> speaker = make_speaker("anna");
-	CHECK(speaker->get_color() == Color(1, 1, 1));
+	CHECK(speaker->get_color() == Color(0, 0, 0, 0)); // Alpha 0: no color of its own.
 	CHECK(speaker->get_translated_name() == "anna"); // No display name: the id.
 	CHECK(speaker->load_portrait().is_null()); // No portrait path.
 
@@ -105,6 +110,10 @@ TEST_CASE("[DialogueSpeakers] Find by id, ids, validation and POT entries") {
 	speakers->add_speaker(make_speaker("anna", "SPEAKER_ANNA"));
 	speakers->add_speaker(make_speaker("ben"));
 	CHECK(speakers->has_speaker("anna"));
+	CHECK(speakers->has_speaker("ANNA")); // SubRip writes speakers in capitals.
+	CHECK(speakers->get_speaker("Anna")->get_id() == StringName("anna")); // WebVTT <v Anna>; the id stays as written.
+	CHECK(DialogueSpeaker::ids_match("Ben", "bEN"));
+	CHECK_FALSE(DialogueSpeaker::ids_match("ben", StringName()));
 	CHECK_FALSE(speakers->has_speaker("carl"));
 	CHECK_FALSE(speakers->has_speaker(StringName()));
 	CHECK(speakers->get_speaker("ben")->get_id() == StringName("ben"));
@@ -122,22 +131,24 @@ TEST_CASE("[DialogueSpeakers] Find by id, ids, validation and POT entries") {
 	TypedArray<DialogueSpeaker> list = speakers->get_speakers();
 	list.push_back(Ref<DialogueSpeaker>()); // An empty Inspector slot.
 	list.push_back(make_speaker(StringName()));
-	list.push_back(make_speaker("anna"));
+	list.push_back(make_speaker("ANNA")); // The same id, ignoring case.
+	list.push_back(make_speaker("x:y")); // Would break the Inspector's suggestions.
 	speakers->set_speakers(list);
-	CHECK(speakers->get_speakers().size() == 5);
-	CHECK(speakers->get_ids() == PackedStringArray({ "anna", "ben" }));
-	CHECK(speakers->validate() == PackedStringArray({ "Speaker 2 is empty.", "Speaker 3 has no id.", "Speakers 0 and 4 use the same id \"anna\"." }));
+	CHECK(speakers->get_speakers().size() == 6);
+	CHECK(speakers->get_ids() == PackedStringArray({ "anna", "ben", "x:y" }));
+	const PackedStringArray problems = speakers->validate();
+	CHECK(problems == PackedStringArray({ "Speaker 2 is empty.", "Speaker 3 has no id.", "Speakers 0 and 4 use the same id \"ANNA\" (ids ignore case).", "Speaker 5: the id \"x:y\" contains \",\" or \":\"." }));
 	CHECK(speakers->get_speaker("anna")->get_display_name() == "SPEAKER_ANNA"); // The first one wins.
 
 	speakers->remove_speaker("anna");
-	CHECK(speakers->get_speaker("anna")->get_display_name().is_empty()); // The second one.
+	CHECK(speakers->get_speaker("anna")->get_id() == StringName("ANNA")); // The second one.
 	speakers->remove_speaker("anna");
 	CHECK_FALSE(speakers->has_speaker("anna"));
 
 	ERR_PRINT_OFF;
 	speakers->add_speaker(Ref<DialogueSpeaker>());
 	ERR_PRINT_ON;
-	CHECK(speakers->get_speakers().size() == 3);
+	CHECK(speakers->get_speakers().size() == 4);
 }
 
 TEST_CASE("[SubtitleServer] Speakers: never null, signals, display names") {
@@ -162,6 +173,8 @@ TEST_CASE("[SubtitleServer] Speakers: never null, signals, display names") {
 	segment->set_text("Hello");
 	segment->set_speaker("anna");
 	CHECK(server->get_display_speaker(subtitle, segment) == "Anna Smith");
+	segment->set_speaker("ANNA"); // A SubRip speaker.
+	CHECK(server->get_display_speaker(subtitle, segment) == "Anna Smith");
 	CHECK(server->get_display_text(subtitle, segment) == "Hello"); // The text stays without the name.
 	segment->set_speaker("ben");
 	CHECK(server->get_display_speaker(subtitle, segment) == "ben"); // Unknown: the id, as before.
@@ -170,7 +183,8 @@ TEST_CASE("[SubtitleServer] Speakers: never null, signals, display names") {
 	CHECK(server->get_speakers().is_valid());
 	CHECK(server->get_speakers() != speakers);
 	CHECK(server->get_speakers()->get_speakers().is_empty());
-	SIGNAL_CHECK("speakers_changed", Array({ {} }));
+	const Ref<DialogueSpeakers> empty = server->get_speakers();
+	SIGNAL_CHECK("speakers_changed", { { empty } }); // The new, empty list.
 	SIGNAL_UNWATCH(server, "speakers_changed");
 }
 
@@ -197,18 +211,88 @@ TEST_CASE("[SubtitleServer][TTSServer] The TTS persona of a speaker is registere
 	CHECK(tts_server->get_persona("unit_a")->get_rate() == doctest::Approx(1.5f));
 	CHECK(tts_server->get_persona("unit_a") != shared); // A copy per speaker.
 
+	// An edit replaces our copy in place: a default persona of that name stays the default.
+	tts_server->set_default_persona("unit_a");
 	shared->set_rate(0.75f); // Edited in the Inspector: registered again.
 	CHECK(tts_server->get_persona("unit_b")->get_rate() == doctest::Approx(0.75f));
+	CHECK(tts_server->get_default_persona_name() == StringName("unit_a"));
 
-	// A persona the game added under a speaker id is left alone.
+	// A persona the game added under a speaker id is never overwritten or removed.
 	Ref<TTSPersona> own;
 	own.instantiate();
 	own->set_persona_name("unit_b");
+	own->set_rate(3.0f);
 	tts_server->add_persona(own);
+	ERR_PRINT_OFF; // The warning about the persona of the game.
+	shared->set_rate(2.0f);
+	ERR_PRINT_ON;
+	CHECK(tts_server->get_persona("unit_b") == own);
+	CHECK(tts_server->get_persona("unit_a")->get_rate() == doctest::Approx(2.0f));
+	speakers->remove_speaker("unit_b");
+	CHECK(tts_server->get_persona("unit_b") == own);
+
 	server->set_speakers(Ref<DialogueSpeakers>());
-	CHECK_FALSE(tts_server->has_persona("unit_a"));
+	CHECK_FALSE(tts_server->has_persona("unit_a")); // Our copy is gone with its speaker.
 	CHECK(tts_server->get_persona("unit_b") == own);
 	tts_server->remove_persona("unit_b");
+	tts_server->set_default_persona(StringName());
+}
+
+TEST_CASE("[SubtitleServer] Subtitle.validate() reports segments with unknown speakers") {
+	Ref<Subtitle> subtitle;
+	subtitle.instantiate();
+	Ref<SubtitleSegment> anna;
+	anna.instantiate();
+	anna->set_end_time(1.0);
+	anna->set_text("Hello");
+	anna->set_speaker("ANNA");
+	subtitle->add_segment(anna);
+	Ref<SubtitleSegment> carl;
+	carl.instantiate();
+	carl->set_start_time(2.0);
+	carl->set_end_time(3.0);
+	carl->set_text("Hi");
+	carl->set_speaker("carl");
+	subtitle->add_segment(carl);
+	CHECK(subtitle->validate()->get_unknown_speaker_segments().is_empty()); // No project speakers: not checked.
+
+	Ref<DialogueSpeakers> speakers;
+	speakers.instantiate();
+	speakers->add_speaker(make_speaker("anna"));
+	SubtitleServer::get_singleton()->set_speakers(speakers);
+	const Ref<SubtitleValidation> validation = subtitle->validate();
+	CHECK(validation->get_unknown_speaker_segments() == PackedInt32Array({ 1 }));
+	CHECK(validation->get_problem_count() == 1);
+	SubtitleServer::get_singleton()->set_speakers(Ref<DialogueSpeakers>());
+}
+
+TEST_CASE("[SubtitleServer] A failed load of the project speakers is tried again on the next settings change") {
+	SubtitleServer *server = SubtitleServer::get_singleton();
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	const String previous = GLOBAL_GET(SubtitleServer::SETTING_SPEAKERS);
+	const String path = TestUtils::get_temp_path("dialogue_speakers").path_join("speakers.tres");
+	DirAccess::make_dir_recursive_absolute(path.get_base_dir());
+	if (FileAccess::exists(path)) {
+		DirAccess::remove_absolute(path);
+	}
+
+	project_settings->set_setting(SubtitleServer::SETTING_SPEAKERS, path);
+	ERR_PRINT_OFF;
+	server->load_project_speakers(); // The file does not exist yet.
+	ERR_PRINT_ON;
+	CHECK(server->get_speakers().is_valid());
+	CHECK(server->get_speakers()->get_speakers().is_empty());
+
+	Ref<DialogueSpeakers> speakers;
+	speakers.instantiate();
+	speakers->add_speaker(make_speaker("anna"));
+	REQUIRE(ResourceSaver::save(speakers, path) == OK);
+	project_settings->emit_signal("settings_changed"); // Any change of the settings; the path is the same.
+	CHECK(server->get_speakers()->has_speaker("anna"));
+
+	project_settings->set_setting(SubtitleServer::SETTING_SPEAKERS, previous);
+	server->load_project_speakers();
+	DirAccess::remove_absolute(path);
 }
 
 } // namespace TestDialogueSpeakers

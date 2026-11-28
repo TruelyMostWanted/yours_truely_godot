@@ -4,7 +4,7 @@
 		Who speaks a dialogue line or a subtitle: name, portrait, color and text-to-speech voice.
 	</brief_description>
 	<description>
-		A [DialogueSpeaker] describes one speaker of a game. Lines refer to it by [member id]: [member DialogueLineNode.speaker], [member SubtitleSegment.speaker] (subtitle files carry it as text, for example the SubRip name tag [code]ANNA: Hello[/code] or the WebVTT voice tag [code]&lt;v Anna&gt;[/code]) and the keys of [member SubtitleLabel.speaker_colors] all use the same id.
+		A [DialogueSpeaker] describes one speaker of a game. Lines refer to it by [member id]: [member DialogueLineNode.speaker], [member SubtitleSegment.speaker] (subtitle files carry it as text, for example the SubRip name tag [code]ANNA: Hello[/code] or the WebVTT voice tag [code]&lt;v Anna&gt;[/code]) and [SubtitleLabel] all use the same id. Ids compare without case, so the SubRip tag [code]ANNA:[/code], the WebVTT tag [code]&lt;v Anna&gt;[/code] and the id [code]anna[/code] name the same speaker.
 		The speakers of a project are collected in a [DialogueSpeakers] resource, set in [member ProjectSettings.audio/subtitles/speakers] and available as [member SubtitleServer.speakers]. A disguised speaker ("???") is a speaker of its own with another id.
 		[codeblocks]
 		[gdscript]
@@ -58,14 +58,14 @@
 		</method>
 	</methods>
 	<members>
-		<member name="color" type="Color" setter="set_color" getter="get_color" default="Color(1, 1, 1, 1)">
-			The color of the speaker's lines and name. [SubtitleLabel] uses it for speakers without an entry in [member SubtitleLabel.speaker_colors]; white, the default, keeps the label's own text color.
+		<member name="color" type="Color" setter="set_color" getter="get_color" default="Color(0, 0, 0, 0)">
+			The color of the speaker's lines in [SubtitleLabel] and in your own dialogue UI. A color with alpha [code]0[/code] (the default) means "no color of its own": the label keeps its theme's text color. Any visible color, white included, is applied.
 		</member>
 		<member name="display_name" type="String" setter="set_display_name" getter="get_display_name" default="&quot;&quot;">
 			The name shown to the player: a translation key or a plain name, translated by [method get_translated_name]. If empty, [member id] is shown. [method DialogueSpeakers.get_translatable_strings] adds it to POT files with the context [code]"speaker"[/code].
 		</member>
 		<member name="id" type="StringName" setter="set_id" getter="get_id" default="&amp;&quot;&quot;">
-			The key of the speaker: used by [member DialogueLineNode.speaker], [member SubtitleSegment.speaker], [member SubtitleLabel.speaker_colors] and as the persona name at [TTSServer]. Must be unique within a [DialogueSpeakers] (see [method DialogueSpeakers.validate]).
+			The key of the speaker: used by [member DialogueLineNode.speaker], [member SubtitleSegment.speaker] and [SubtitleLabel], and as the persona name at [TTSServer] (as written). Lookups ignore case ([code]ANNA[/code] finds [code]anna[/code]); the id is kept as written. Must be unique within a [DialogueSpeakers], ignoring case, and must not contain [code],[/code] or [code]:[/code] (see [method DialogueSpeakers.validate]).
 		</member>
 		<member name="portrait_path" type="String" setter="set_portrait_path" getter="get_portrait_path" default="&quot;&quot;">
 			The path ([code]uid://[/code] or [code]res://[/code]) of the speaker's portrait. A path instead of a texture, so a list of speakers keeps no textures in memory and portraits can be localized by [ResourceLocalizationServer]. Load it with [method load_portrait].

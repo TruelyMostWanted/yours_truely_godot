@@ -41,6 +41,10 @@
 
 // DialogueSpeaker
 
+bool DialogueSpeaker::ids_match(const StringName &p_a, const StringName &p_b) {
+	return p_a == p_b || (p_a != StringName() && p_b != StringName() && String(p_a).nocasecmp_to(String(p_b)) == 0);
+}
+
 void DialogueSpeaker::_persona_changed() {
 	emit_changed();
 }
@@ -205,7 +209,7 @@ void DialogueSpeakers::add_speaker(const Ref<DialogueSpeaker> &p_speaker) {
 
 void DialogueSpeakers::remove_speaker(const StringName &p_id) {
 	for (int idx = 0; idx < speakers.size(); idx++) {
-		if (speakers[idx].is_valid() && speakers[idx]->get_id() == p_id) {
+		if (speakers[idx].is_valid() && DialogueSpeaker::ids_match(speakers[idx]->get_id(), p_id)) {
 			speakers[idx]->disconnect_changed(callable_mp(this, &DialogueSpeakers::_speaker_changed));
 			speakers.remove_at(idx);
 			emit_changed();
@@ -219,7 +223,7 @@ Ref<DialogueSpeaker> DialogueSpeakers::get_speaker(const StringName &p_id) const
 		return Ref<DialogueSpeaker>();
 	}
 	for (const Ref<DialogueSpeaker> &speaker : speakers) {
-		if (speaker.is_valid() && speaker->get_id() == p_id) {
+		if (speaker.is_valid() && DialogueSpeaker::ids_match(speaker->get_id(), p_id)) {
 			return speaker;
 		}
 	}
@@ -232,8 +236,14 @@ bool DialogueSpeakers::has_speaker(const StringName &p_id) const {
 
 PackedStringArray DialogueSpeakers::get_ids() const {
 	PackedStringArray ids;
+	PackedStringArray lower_ids;
 	for (const Ref<DialogueSpeaker> &speaker : speakers) {
-		if (speaker.is_valid() && speaker->get_id() != StringName() && !ids.has(speaker->get_id())) {
+		if (speaker.is_null() || speaker->get_id() == StringName()) {
+			continue;
+		}
+		const String lower = String(speaker->get_id()).to_lower();
+		if (!lower_ids.has(lower)) {
+			lower_ids.push_back(lower);
 			ids.push_back(speaker->get_id());
 		}
 	}
@@ -242,7 +252,7 @@ PackedStringArray DialogueSpeakers::get_ids() const {
 
 PackedStringArray DialogueSpeakers::validate() const {
 	PackedStringArray problems;
-	HashMap<StringName, int> first_index;
+	HashMap<String, int> first_index; // By lower-case id.
 	for (int idx = 0; idx < speakers.size(); idx++) {
 		const Ref<DialogueSpeaker> &speaker = speakers[idx];
 		if (speaker.is_null()) {
@@ -254,11 +264,16 @@ PackedStringArray DialogueSpeakers::validate() const {
 			problems.push_back(vformat("Speaker %d has no id.", idx));
 			continue;
 		}
-		const int *first = first_index.getptr(speaker_id);
+		if (String(speaker_id).contains_char(',') || String(speaker_id).contains_char(':')) {
+			// `,` and `:` separate the suggestions of the Inspector id picker.
+			problems.push_back(vformat("Speaker %d: the id \"%s\" contains \",\" or \":\".", idx, speaker_id));
+		}
+		const String lower = String(speaker_id).to_lower();
+		const int *first = first_index.getptr(lower);
 		if (first != nullptr) {
-			problems.push_back(vformat("Speakers %d and %d use the same id \"%s\".", *first, idx, speaker_id));
+			problems.push_back(vformat("Speakers %d and %d use the same id \"%s\" (ids ignore case).", *first, idx, speaker_id));
 		} else {
-			first_index.insert(speaker_id, idx);
+			first_index.insert(lower, idx);
 		}
 	}
 	return problems;

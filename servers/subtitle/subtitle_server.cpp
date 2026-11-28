@@ -37,7 +37,6 @@
 #include "core/object/class_db.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
-#include "core/string/resource_localization_server.h"
 #include "core/string/translation_domain.h"
 #include "core/string/translation_server.h"
 #include "servers/audio/audio_server.h"
@@ -347,43 +346,69 @@ String SubtitleServer::get_display_speaker(const Ref<Subtitle> &p_subtitle, cons
 	return speaker;
 }
 
-// Speakers.
+// Speakers. Main thread only: the list, the persona copies and `speakers_changed`. A change of a speaker on
+// another thread is handled on the main thread (deferred).
 
-void SubtitleServer::_unregister_personas() {
+void SubtitleServer::_update_personas(bool p_clear) {
 	TTSServer *tts_server = TTSServer::get_singleton();
-	for (const KeyValue<StringName, Ref<TTSPersona>> &E : registered_personas) {
-		// Only our own copy: the game may have added a persona of the same name since.
-		if (tts_server != nullptr && tts_server->get_base_persona(E.key) == E.value) {
-			tts_server->remove_persona(E.key);
+	HashMap<StringName, Ref<TTSPersona>> wanted;
+	if (!p_clear) {
+		for (const Ref<DialogueSpeaker> &speaker : speakers->get_speaker_list()) {
+			if (speaker.is_valid() && speaker->get_id() != StringName() && speaker->get_tts_persona().is_valid() && !wanted.has(speaker->get_id())) {
+				wanted.insert(speaker->get_id(), speaker->get_tts_persona());
+			}
 		}
 	}
-	registered_personas.clear();
-}
 
-void SubtitleServer::_register_personas() {
-	_unregister_personas();
-	TTSServer *tts_server = TTSServer::get_singleton();
+	// Ids that are gone: remove our copy, if it is still the registered one.
+	Vector<StringName> gone;
+	for (const KeyValue<StringName, Ref<TTSPersona>> &E : registered_personas) {
+		if (!wanted.has(E.key)) {
+			gone.push_back(E.key);
+		}
+	}
+	for (const StringName &persona_id : gone) {
+		if (tts_server != nullptr && tts_server->get_base_persona(persona_id) == registered_personas[persona_id]) {
+			tts_server->remove_persona(persona_id);
+		}
+		registered_personas.erase(persona_id);
+	}
 	if (tts_server == nullptr) {
 		return;
 	}
-	for (const Ref<DialogueSpeaker> &speaker : speakers->get_speaker_list()) {
-		if (speaker.is_null() || speaker->get_id() == StringName() || speaker->get_tts_persona().is_null() || registered_personas.has(speaker->get_id())) {
+
+	for (const KeyValue<StringName, Ref<TTSPersona>> &E : wanted) {
+		const Ref<TTSPersona> *own = registered_personas.getptr(E.key);
+		const Ref<TTSPersona> base = tts_server->get_base_persona(E.key);
+		if (base.is_valid() && (own == nullptr || base != *own)) {
+			// A persona the game added under this name wins; it is never overwritten or removed.
+			registered_personas.erase(E.key);
+			if (!foreign_persona_ids.has(E.key)) {
+				foreign_persona_ids.insert(E.key);
+				WARN_PRINT(vformat("TTSServer already has a persona \"%s\" of the game: the TTS persona of the speaker \"%s\" is not registered.", E.key, E.key));
+			}
 			continue;
 		}
-		// A copy named after the speaker: one persona may be shared by several speakers.
-		Ref<TTSPersona> persona = speaker->get_tts_persona()->duplicate();
-		persona->set_persona_name(speaker->get_id());
+		// A copy named after the speaker: one persona may be shared by several speakers. add_persona() replaces our
+		// previous copy in place, so a default persona of this name stays the default.
+		Ref<TTSPersona> persona = E.value->duplicate();
+		persona->set_persona_name(E.key);
 		tts_server->add_persona(persona);
-		registered_personas.insert(speaker->get_id(), persona);
+		registered_personas[E.key] = persona;
 	}
 }
 
 void SubtitleServer::_speakers_changed() {
-	_register_personas();
+	if (!Thread::is_main_thread()) {
+		callable_mp(this, &SubtitleServer::_speakers_changed).call_deferred();
+		return;
+	}
+	_update_personas(false);
 	emit_signal(SNAME("speakers_changed"), speakers);
 }
 
 void SubtitleServer::set_speakers(const Ref<DialogueSpeakers> &p_speakers) {
+	ERR_FAIL_COND_MSG(!Thread::is_main_thread(), "SubtitleServer.speakers can only be set on the main thread.");
 	Ref<DialogueSpeakers> new_speakers = p_speakers;
 	if (new_speakers.is_null()) {
 		new_speakers.instantiate();
@@ -404,11 +429,13 @@ Ref<DialogueSpeakers> SubtitleServer::get_speakers() const {
 
 void SubtitleServer::_load_speakers_from(const String &p_path) {
 	project_speakers_path = p_path;
+	project_speakers_loaded = true;
 	Ref<DialogueSpeakers> loaded;
 	if (!p_path.is_empty()) {
 		loaded = ResourceLoader::load(p_path, "DialogueSpeakers");
 		if (loaded.is_null()) {
-			ERR_PRINT(vformat("The project setting \"%s\" names \"%s\", which is not a DialogueSpeakers resource.", SETTING_SPEAKERS, p_path));
+			project_speakers_loaded = false; // Tried again on the next change of the project settings.
+			WARN_PRINT(vformat("The project setting \"%s\" names \"%s\", which could not be loaded as DialogueSpeakers.", SETTING_SPEAKERS, p_path));
 		}
 	}
 	set_speakers(loaded);
@@ -416,7 +443,7 @@ void SubtitleServer::_load_speakers_from(const String &p_path) {
 
 void SubtitleServer::_project_settings_changed() {
 	const String path = GLOBAL_GET(SETTING_SPEAKERS);
-	if (path != project_speakers_path) {
+	if (path != project_speakers_path || !project_speakers_loaded) {
 		_load_speakers_from(path);
 	}
 }
@@ -424,6 +451,7 @@ void SubtitleServer::_project_settings_changed() {
 void SubtitleServer::load_project_speakers() {
 	ProjectSettings *project_settings = ProjectSettings::get_singleton();
 	ERR_FAIL_NULL(project_settings);
+	ERR_FAIL_COND_MSG(!Thread::is_main_thread(), "The project's speakers can only be loaded on the main thread.");
 	if (!project_settings_connected) {
 		project_settings->connect("settings_changed", callable_mp(this, &SubtitleServer::_project_settings_changed));
 		project_settings_connected = true;
@@ -561,18 +589,17 @@ SubtitleServer::SubtitleServer() {
 	GLOBAL_DEF(PropertyInfo(Variant::STRING, SETTING_SPEAKERS, PROPERTY_HINT_FILE, "*.tres,*.res"), "");
 	speakers.instantiate();
 	speakers->connect_changed(callable_mp(this, &SubtitleServer::_speakers_changed));
-	// Startup: after the resource localization catalogs (Main::setup2(), once scene types and formats exist), so a
-	// localized speakers path resolves. No line in main.cpp of its own.
-	ResourceLocalizationServer *resource_localization = ResourceLocalizationServer::get_singleton();
-	if (resource_localization != nullptr) {
-		resource_localization->connect(SNAME("catalogs_changed"), callable_mp(this, &SubtitleServer::load_project_speakers), CONNECT_ONE_SHOT);
+	// Startup: project settings, resource UIDs and the server types are ready here. A speakers file that cannot
+	// be loaded yet is tried again on the next change of the project settings.
+	if (ProjectSettings::get_singleton() != nullptr) {
+		load_project_speakers();
 	}
 }
 
 SubtitleServer::~SubtitleServer() {
 	_remove_callback();
 	tracks.clear();
-	_unregister_personas();
+	_update_personas(true);
 	speakers->disconnect_changed(callable_mp(this, &SubtitleServer::_speakers_changed));
 	speakers.unref();
 	singleton = nullptr;

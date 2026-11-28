@@ -106,6 +106,7 @@ class SubtitleValidation : public RefCounted {
 	PackedInt32Array empty_text_segments;
 	PackedInt32Array overlapping_segments;
 	PackedInt32Array fast_reading_segments;
+	PackedInt32Array unknown_speaker_segments;
 
 protected:
 	static void _bind_methods();
@@ -117,6 +118,7 @@ public:
 	PackedInt32Array get_empty_text_segments() const { return empty_text_segments; }
 	PackedInt32Array get_overlapping_segments() const { return overlapping_segments; }
 	PackedInt32Array get_fast_reading_segments() const { return fast_reading_segments; }
+	PackedInt32Array get_unknown_speaker_segments() const { return unknown_speaker_segments; }
 };
 
 // A timed list of texts. It knows nothing about audio or video: whatever has a time can drive it through `SubtitleServer`.
