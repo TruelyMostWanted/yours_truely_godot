@@ -37,17 +37,28 @@
 
 class AudioStream;
 class AudioStreamPlayer;
+class AspectRatioContainer;
 class Button;
+class ConfirmationDialog;
 class EditorResourcePicker;
 class HScrollBar;
+class ItemList;
 class Label;
+class LineEdit;
+class MenuButton;
+class OptionButton;
+class PopupMenu;
+class SpinBox;
 class Tree;
 class TreeItem;
+class VideoStream;
+class VideoStreamPlayer;
 
 // Edits the segments of a `Subtitle` in a bottom dock: a table and a timeline with the waveform of the audio
-// stream, where segments are moved and trimmed with the mouse and spotted at the playhead with the keyboard.
-// Opened for a Subtitle resource, or from the Inspector of an AudioStream with a subtitle file; the Inspector
-// table is the quick path.
+// stream (or the picture of a video stream), where segments are moved and trimmed with the mouse, snapped to
+// silence and spotted at the playhead with the keyboard. Timing tools shift, sync, split and merge segments;
+// a list shows the validation problems. Opened for a Subtitle resource, or from the Inspector of an AudioStream
+// with a subtitle file; the Inspector table is the quick path.
 class SubtitlesDock : public EditorDock {
 	GDCLASS(SubtitlesDock, EditorDock);
 
@@ -61,6 +72,26 @@ class SubtitlesDock : public EditorDock {
 		COLUMN_MAX,
 	};
 
+	enum TimingMenu {
+		TIMING_SHIFT,
+		TIMING_SYNC,
+		TIMING_SPLIT,
+		TIMING_MERGE,
+		TIMING_SNAP,
+		// Only in the table's context menu.
+		TIMING_ADD,
+		TIMING_REMOVE,
+		TIMING_SET_START,
+		TIMING_SET_END,
+		TIMING_INSPECT,
+	};
+
+	enum ShiftScope {
+		SHIFT_ALL,
+		SHIFT_SELECTED,
+		SHIFT_FROM_SELECTED,
+	};
+
 	enum DragMode {
 		DRAG_NONE,
 		DRAG_SEEK,
@@ -71,10 +102,14 @@ class SubtitlesDock : public EditorDock {
 
 	static constexpr double MIN_DURATION = 0.1;
 	static constexpr double NEW_DURATION = 2.0;
+	static constexpr double LEVEL_WINDOW = 0.01; // Seconds per entry of `levels`.
+	static constexpr real_t DRAG_SNAP_RADIUS = 8; // Pixels, for dragged edges.
+	static constexpr uint64_t VIDEO_SCRUB_MSEC = 80; // At most one video seek per this time while scrubbing.
 	static inline SubtitlesDock *singleton = nullptr;
 
 	Ref<Subtitle> subtitle;
 	Ref<AudioStream> stream;
+	Ref<VideoStream> video;
 	int selected = -1;
 	HashMap<int, PackedStringArray> problems; // Of the last update: segment index -> messages.
 	Vector<Ref<SubtitleSegment>> shown_segments; // The segments the table rows were built for.
@@ -88,6 +123,18 @@ class SubtitlesDock : public EditorDock {
 	bool fit_pending = false; // Zoom out to the whole stream once the timeline has a size.
 	double playhead = 0.0;
 	bool playing = false;
+	bool snap = true;
+
+	// Loudness of the stream per LEVEL_WINDOW, for snapping to silence; rebuilt when the preview changes.
+	Vector<float> levels;
+	float level_threshold = 0.0f;
+	ObjectID levels_stream;
+	uint64_t levels_version = 0;
+	bool snap_line_visible = false; // Drawn while a dragged edge sits on a snap target.
+	double snap_line_time = 0.0; // In segment time.
+	uint64_t last_video_seek_msec = 0;
+	bool video_seek_pending = false;
+	Size2i video_size;
 
 	DragMode drag_mode = DRAG_NONE;
 	double drag_from_time = 0.0;
@@ -105,6 +152,26 @@ class SubtitlesDock : public EditorDock {
 	Button *spot_end_button = nullptr;
 	Button *save_button = nullptr;
 	Label *status_label = nullptr;
+	Button *split_button = nullptr;
+	Button *merge_button = nullptr;
+	Button *problems_button = nullptr;
+	MenuButton *timing_menu = nullptr;
+	PopupMenu *context_menu = nullptr;
+	Control *video_box = nullptr;
+	AspectRatioContainer *video_panel = nullptr;
+	VideoStreamPlayer *video_player = nullptr;
+	Label *video_text_label = nullptr;
+	Control *problem_box = nullptr;
+	Label *problem_header = nullptr;
+	ItemList *problem_view = nullptr;
+	ConfirmationDialog *shift_dialog = nullptr;
+	LineEdit *shift_edit = nullptr;
+	OptionButton *shift_scope = nullptr;
+	ConfirmationDialog *sync_dialog = nullptr;
+	SpinBox *sync_segments[2] = {};
+	LineEdit *sync_targets[2] = {};
+	Label *sync_current[2] = {};
+	Label *sync_factor_label = nullptr;
 	Control *timeline = nullptr;
 	HScrollBar *timeline_scroll = nullptr;
 	Tree *tree = nullptr;
@@ -130,6 +197,11 @@ class SubtitlesDock : public EditorDock {
 	void _subtitle_changed();
 	void _segment_changed(int p_index);
 	void _select(int p_index, bool p_scroll_tree = true);
+	void _jump_to(int p_index);
+	void _update_problem_view();
+	void _problem_clicked(int p_item, const Vector2 &p_position, MouseButton p_button);
+	void _toggle_problems(bool p_visible);
+	void _update_video_text();
 
 	void _commit_segments(const String &p_action, const TypedArray<SubtitleSegment> &p_segments, int p_select);
 	void _commit_times(const String &p_action, int p_index, double p_start, double p_end, double p_old_start, double p_old_end);
@@ -137,12 +209,26 @@ class SubtitlesDock : public EditorDock {
 	void _remove_segment();
 	void _spot(bool p_end);
 	void _save();
+	Ref<Subtitle> _make_copy(int p_from, int p_to) const;
+	void _split_segment();
+	void _merge_segments();
+	void _popup_shift();
+	void _shift_confirmed();
+	void _popup_sync();
+	void _sync_confirmed();
+	void _update_sync_preview();
+	void _warn_negative_starts(const Ref<Subtitle> &p_copy);
+	void _timing_menu_id_pressed(int p_id);
+	void _update_levels();
+	double _snap(double p_time, bool p_onset, double p_radius, int p_exclude);
 
 	void _play_pause();
 	void _seek(double p_time);
 	void _player_finished();
 	void _stream_picked(const Ref<Resource> &p_stream);
-	void _set_stream(const Ref<AudioStream> &p_stream);
+	void _set_stream(const Ref<Resource> &p_stream);
+	void _seek_video();
+	void _mute_toggled(bool p_muted);
 	void _preview_updated(ObjectID p_id);
 
 	void _timeline_draw();
@@ -152,7 +238,9 @@ class SubtitlesDock : public EditorDock {
 	void _tree_selected();
 	void _tree_edited();
 	void _tree_activated();
+	void _tree_mouse_selected(const Vector2 &p_position, MouseButton p_button);
 	void _file_removed(const String &p_file);
+	void _resources_reloaded(const Vector<String> &p_files);
 
 protected:
 	void _notification(int p_what);
@@ -162,12 +250,20 @@ public:
 	static SubtitlesDock *get_singleton() { return singleton; }
 	// A Subtitle resource (audio streams open through the Inspector button).
 	static bool can_edit(const Object *p_object);
-	// The subtitle file of `p_stream`: its `subtitle_path`, else an .srt or .vtt next to the stream file.
-	static String get_stream_subtitle_path(const AudioStream *p_stream);
-	// An audio file with the base name of `p_subtitle_path` (voice.srt -> voice.wav, .ogg, ...), or empty.
+	// The subtitle file of an AudioStream or VideoStream: its `subtitle_path`, else an .srt or .vtt next to the
+	// stream file.
+	static String get_stream_subtitle_path(const Resource *p_stream);
+	// An audio file with the base name of `p_subtitle_path` (voice.srt -> voice.wav, .ogg, ...), else a video
+	// file (intro.srt -> intro.ogv), or empty.
 	static String find_sidecar_stream(const String &p_subtitle_path);
+	// The time of the silence edge nearest to `p_time` within `p_radius`: where `p_levels` (one loudness value
+	// per `p_window` seconds) rises above `p_threshold` (`p_onset`, the start of speech) or falls below it.
+	static bool find_silence_edge(const Vector<float> &p_levels, double p_window, double p_time, double p_radius, bool p_onset, float p_threshold, double &r_time);
+	// Reads a time with an optional sign ("-1.5", "+0:02.000") as seconds.
+	static bool parse_signed_time(const String &p_text, double &r_seconds);
 
-	// Edits a Subtitle (finding a sidecar audio stream) or an AudioStream (loading its subtitle file).
+	// Edits a Subtitle (finding a sidecar audio or video stream) or an AudioStream or VideoStream (loading its
+	// subtitle file).
 	// The same subtitle again keeps selection, zoom, playhead and stream.
 	void edit(const Ref<Resource> &p_resource);
 	Ref<Subtitle> get_subtitle() const { return subtitle; }
