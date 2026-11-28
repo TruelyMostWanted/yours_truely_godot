@@ -34,6 +34,7 @@ TEST_FORCE_LINK(test_data_table)
 
 #include "core/io/csv_format.h"
 #include "core/io/data_table.h"
+#include "core/object/callable_mp.h"
 #include "tests/signal_watcher.h"
 
 namespace TestDataTable {
@@ -170,17 +171,24 @@ TEST_CASE("[DataTable] Columns are packed arrays") {
 	CHECK_FALSE(table->has_cell(2, 6));
 }
 
+// SignalWatcher supports at most three arguments; cells_changed has four.
+static LocalVector<Vector4i> cells_changed_events;
+
+static void record_cells_changed(int p_row, int p_column, int p_row_count, int p_column_count) {
+	cells_changed_events.push_back(Vector4i(p_row, p_column, p_row_count, p_column_count));
+}
+
 TEST_CASE("[DataTable] Signals") {
 	Ref<DataTable> table = make_units();
-	SIGNAL_WATCH(table.ptr(), "cells_changed");
+	cells_changed_events.clear();
+	table->connect("cells_changed", callable_mp_static(&record_cells_changed));
 	SIGNAL_WATCH(table.ptr(), "rows_inserted");
 	SIGNAL_WATCH(table.ptr(), "rows_removed");
 	SIGNAL_WATCH(table.ptr(), "columns_changed");
 
 	table->set_cell(1, 2, 50);
-	Array cell_args;
-	cell_args.push_back(Array({ 1, 2, 1, 1 }));
-	SIGNAL_CHECK("cells_changed", cell_args);
+	REQUIRE(cells_changed_events.size() == 1);
+	CHECK(cells_changed_events[0] == Vector4i(1, 2, 1, 1));
 
 	table->add_row();
 	Array insert_args;
@@ -199,9 +207,14 @@ TEST_CASE("[DataTable] Signals") {
 
 	// Erasing an absent cell changes nothing.
 	table->erase_cell(1, 3);
-	SIGNAL_CHECK_FALSE("cells_changed");
+	CHECK(cells_changed_events.size() == 1);
 
-	SIGNAL_UNWATCH(table.ptr(), "cells_changed");
+	table->sort_rows(0);
+	REQUIRE(cells_changed_events.size() == 2);
+	CHECK(cells_changed_events[1] == Vector4i(0, 0, 2, 4));
+
+	table->disconnect("cells_changed", callable_mp_static(&record_cells_changed));
+	cells_changed_events.clear();
 	SIGNAL_UNWATCH(table.ptr(), "rows_inserted");
 	SIGNAL_UNWATCH(table.ptr(), "rows_removed");
 	SIGNAL_UNWATCH(table.ptr(), "columns_changed");
