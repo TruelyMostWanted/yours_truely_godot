@@ -89,7 +89,6 @@ public:
 class DataFileInspectorView : public VBoxContainer {
 	GDCLASS(DataFileInspectorView, VBoxContainer);
 
-	static constexpr int CHILD_PAGE = 200;
 	static constexpr int MAX_MATCHES = 100;
 	static constexpr int MAX_ISSUES = 100;
 	static constexpr int AUTO_VALIDATE_SIZE = 256 * 1024;
