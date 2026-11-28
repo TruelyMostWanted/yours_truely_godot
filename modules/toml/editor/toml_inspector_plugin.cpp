@@ -30,6 +30,7 @@
 
 #include "toml_inspector_plugin.h"
 
+#include "../toml.h"
 #include "toml_tree_adapter.h"
 
 // TOMLInspectorView
