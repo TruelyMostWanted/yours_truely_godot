@@ -73,7 +73,7 @@
 			The [SubtitlePlayer] whose segments are shown. It is resolved when the label is ready, so the player can come later in the scene, and again when the label re-enters the tree or the player leaves it.
 		</member>
 		<member name="preview_speaker" type="StringName" setter="set_preview_speaker" getter="get_preview_speaker" default="&amp;&quot;Speaker&quot;">
-			The speaker of the sample line shown in the editor (see [member preview_text]). It uses [member show_speaker_names] and the entry of [member speaker_colors], so the speaker styling can be tried out. Only used in the editor.
+			The speaker of the sample line shown in the editor (see [member preview_text]). It uses [member show_speaker_names], the entry of [member speaker_colors] and the [DialogueSpeaker] of [member SubtitleServer.speakers] with this id, so the speaker styling can be tried out. The Inspector suggests the speaker ids. Only used in the editor.
 		</member>
 		<member name="preview_text" type="String" setter="set_preview_text" getter="get_preview_text" default="&quot;The subtitle line appears here.&quot;">
 			The text of the sample line the label shows in the editor while no real line is visible, so it can be placed and styled (anchors, [member font_size], theme styles, background) without playing anything. It is never shown while the game runs. It is saved with the scene, but not translated.
@@ -82,7 +82,7 @@
 			If [code]true[/code], a dialog line with a [member SubtitleSegment.speaker] starts with the speaker's name and a colon, for example [code]Anna: Hello[/code]. Closed captions never show a speaker.
 		</member>
 		<member name="speaker_colors" type="Dictionary[StringName, Color]" setter="set_speaker_colors" getter="get_speaker_colors" default="{}">
-			The text color of each speaker's lines, by [member SubtitleSegment.speaker]. Lines of speakers without an entry, and closed captions, use the theme's text color ([code]default_color[/code]).
+			The text color of each speaker's lines, by [member SubtitleSegment.speaker]. A speaker without an entry uses [member DialogueSpeaker.color] of [member SubtitleServer.speakers]; white, its default, adds no color. Other lines and closed captions use the theme's text color ([code]default_color[/code]). Shown names come from [method SubtitleServer.get_display_speaker], so a known speaker shows its [member DialogueSpeaker.display_name].
 		</member>
 	</members>
 </class>

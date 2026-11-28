@@ -44,7 +44,7 @@
 			Where the game should show the segment. [constant PLACEMENT_TOP] keeps text away from something important at the bottom of the screen. The engine stores the value; the game applies it.
 		</member>
 		<member name="speaker" type="StringName" setter="set_speaker" getter="get_speaker" default="&amp;&quot;&quot;">
-			Who speaks, for example to color the text or to show the name. SubRip files mark it with a leading name in capitals ([code]JOHN: Hello[/code]).
+			Who speaks, for example to color the text or to show the name. SubRip files mark it with a leading name in capitals ([code]JOHN: Hello[/code]). If [member SubtitleServer.speakers] has a [DialogueSpeaker] with this id, its name and color are used ([method SubtitleServer.get_display_speaker], [SubtitleLabel]); the Inspector suggests these ids.
 		</member>
 		<member name="start_time" type="float" setter="set_start_time" getter="get_start_time" default="0.0">
 			The time in seconds at which the segment appears.

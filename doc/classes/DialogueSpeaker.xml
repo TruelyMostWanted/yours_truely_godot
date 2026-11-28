@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="DialogueSpeaker" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Who speaks a dialogue line or a subtitle: name, portrait, color and text-to-speech voice.
+	</brief_description>
+	<description>
+		A [DialogueSpeaker] describes one speaker of a game. Lines refer to it by [member id]: [member DialogueLineNode.speaker], [member SubtitleSegment.speaker] (subtitle files carry it as text, for example the SubRip name tag [code]ANNA: Hello[/code] or the WebVTT voice tag [code]&lt;v Anna&gt;[/code]) and the keys of [member SubtitleLabel.speaker_colors] all use the same id.
+		The speakers of a project are collected in a [DialogueSpeakers] resource, set in [member ProjectSettings.audio/subtitles/speakers] and available as [member SubtitleServer.speakers]. A disguised speaker ("???") is a speaker of its own with another id.
+		[codeblocks]
+		[gdscript]
+		var anna = DialogueSpeaker.new()
+		anna.id = &amp;"anna"
+		anna.display_name = "SPEAKER_ANNA" # A translation key or a plain name.
+		anna.portrait_path = "res://portraits/anna.png"
+		anna.color = Color.CORAL
+		anna.tts_persona = load("res://voices/anna.tres")
+
+		var speakers = DialogueSpeakers.new()
+		speakers.add_speaker(anna)
+		SubtitleServer.speakers = speakers
+
+		$Name.text = anna.get_translated_name()
+		$Portrait.texture = anna.load_portrait()
+		TTSServer.speak_with_persona("Hello!", anna.id)
+		[/gdscript]
+		[csharp]
+		var anna = new DialogueSpeaker();
+		anna.Id = "anna";
+		anna.DisplayName = "SPEAKER_ANNA"; // A translation key or a plain name.
+		anna.PortraitPath = "res://portraits/anna.png";
+		anna.Color = Colors.Coral;
+		anna.TtsPersona = GD.Load&lt;TtsPersona&gt;("res://voices/anna.tres");
+
+		var speakers = new DialogueSpeakers();
+		speakers.AddSpeaker(anna);
+		SubtitleServer.Speakers = speakers;
+
+		GetNode&lt;Label&gt;("Name").Text = anna.GetTranslatedName();
+		GetNode&lt;TextureRect&gt;("Portrait").Texture = anna.LoadPortrait();
+		TtsServer.SpeakWithPersona("Hello!", anna.Id);
+		[/csharp]
+		[/codeblocks]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_translated_name" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns [member display_name] (or [member id] if it is empty) translated in the translation domain [code]"subtitles"[/code] with the context [code]"speaker"[/code], so the name follows the subtitles language ([method TranslationServer.set_locale_for]) like the spoken text. Without a translation, the name is returned unchanged.
+			</description>
+		</method>
+		<method name="load_portrait" qualifiers="const">
+			<return type="Texture2D" />
+			<description>
+				Loads the texture of [member portrait_path] (from the resource cache if it is loaded already) and returns it, or [code]null[/code] if the path is empty or the file is not a [Texture2D].
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="color" type="Color" setter="set_color" getter="get_color" default="Color(1, 1, 1, 1)">
+			The color of the speaker's lines and name. [SubtitleLabel] uses it for speakers without an entry in [member SubtitleLabel.speaker_colors]; white, the default, keeps the label's own text color.
+		</member>
+		<member name="display_name" type="String" setter="set_display_name" getter="get_display_name" default="&quot;&quot;">
+			The name shown to the player: a translation key or a plain name, translated by [method get_translated_name]. If empty, [member id] is shown. [method DialogueSpeakers.get_translatable_strings] adds it to POT files with the context [code]"speaker"[/code].
+		</member>
+		<member name="id" type="StringName" setter="set_id" getter="get_id" default="&amp;&quot;&quot;">
+			The key of the speaker: used by [member DialogueLineNode.speaker], [member SubtitleSegment.speaker], [member SubtitleLabel.speaker_colors] and as the persona name at [TTSServer]. Must be unique within a [DialogueSpeakers] (see [method DialogueSpeakers.validate]).
+		</member>
+		<member name="portrait_path" type="String" setter="set_portrait_path" getter="get_portrait_path" default="&quot;&quot;">
+			The path ([code]uid://[/code] or [code]res://[/code]) of the speaker's portrait. A path instead of a texture, so a list of speakers keeps no textures in memory and portraits can be localized by [ResourceLocalizationServer]. Load it with [method load_portrait].
+		</member>
+		<member name="tts_persona" type="TTSPersona" setter="set_tts_persona" getter="get_tts_persona">
+			The text-to-speech voice of the speaker, for lines without a recorded voice. [SubtitleServer] registers a copy at [TTSServer] under [member id], so [method TTSServer.speak_with_persona] with the speaker id uses it, and the player can change it per speaker ([TTSPersonaSettingsServer]). The persona's own [member TTSPersona.persona_name] is not used. If [code]null[/code], the speaker has no voice of its own.
+		</member>
+	</members>
+</class>

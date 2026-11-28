@@ -36,6 +36,7 @@
 #include "core/templates/hash_set.h"
 #include "servers/subtitle/subtitle_format_srt.h"
 #include "servers/subtitle/subtitle_formats.h"
+#include "servers/subtitle/subtitle_server.h"
 
 // SubtitleSegment
 
@@ -123,6 +124,12 @@ bool SubtitleSegment::contains_time(double p_time) const {
 
 bool SubtitleSegment::is_caption() const {
 	return kind == KIND_SOUND || kind == KIND_REACTION || kind == KIND_MUSIC || kind == KIND_LYRICS;
+}
+
+void SubtitleSegment::_validate_property(PropertyInfo &p_property) const {
+	if (p_property.name == "speaker") {
+		SubtitleServer::add_speaker_id_hint(p_property);
+	}
 }
 
 void SubtitleSegment::_bind_methods() {

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="DialogueSpeakers" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		The speakers of a game, found by their id.
+	</brief_description>
+	<description>
+		A list of [DialogueSpeaker]s. Dialogue lines, subtitle segments and subtitle files name their speaker by a text id; this list resolves the id to the speaker's name, portrait, color and voice.
+		Save it as a [code].tres[/code] file and set its path in [member ProjectSettings.audio/subtitles/speakers]: the engine loads it into [member SubtitleServer.speakers] at startup and registers the speakers' TTS personas at [TTSServer]. Changing a speaker emits [signal Resource.changed] of the list.
+		[codeblocks]
+		[gdscript]
+		var speakers = SubtitleServer.speakers
+		if speakers.has_speaker(&amp;"anna"):
+		    print(speakers.get_speaker(&amp;"anna").get_translated_name())
+		for problem in speakers.validate():
+		    push_warning(problem)
+		[/gdscript]
+		[csharp]
+		DialogueSpeakers speakers = SubtitleServer.Speakers;
+		if (speakers.HasSpeaker("anna"))
+		{
+		    GD.Print(speakers.GetSpeaker("anna").GetTranslatedName());
+		}
+		foreach (string problem in speakers.Validate())
+		{
+		    GD.PushWarning(problem);
+		}
+		[/csharp]
+		[/codeblocks]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_speaker">
+			<return type="void" />
+			<param index="0" name="speaker" type="DialogueSpeaker" />
+			<description>
+				Adds [param speaker] at the end of [member speakers]. Fails if it is [code]null[/code] or already in the list.
+			</description>
+		</method>
+		<method name="get_ids" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns the ids of the speakers in list order, each once, without empty ids. The Inspector suggests them for speaker properties.
+			</description>
+		</method>
+		<method name="get_speaker" qualifiers="const">
+			<return type="DialogueSpeaker" />
+			<param index="0" name="id" type="StringName" />
+			<description>
+				Returns the first speaker with the id [param id], or [code]null[/code] if there is none or [param id] is empty.
+			</description>
+		</method>
+		<method name="get_translatable_strings" qualifiers="const">
+			<return type="PackedStringArray[]" />
+			<description>
+				Returns the entries for POT generation: one per speaker, [code][name, "speaker", "", "Speaker name (id)"][/code], where the name is [member DialogueSpeaker.display_name] or the id if it is empty. The context [code]"speaker"[/code] is the one [method DialogueSpeaker.get_translated_name] translates with. The editor uses it for [DialogueSpeakers] files added to the POT generation list ([b]Project Settings &gt; Localization &gt; POT Generation[/b]).
+			</description>
+		</method>
+		<method name="has_speaker" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="id" type="StringName" />
+			<description>
+				Returns [code]true[/code] if a speaker has the id [param id].
+			</description>
+		</method>
+		<method name="remove_speaker">
+			<return type="void" />
+			<param index="0" name="id" type="StringName" />
+			<description>
+				Removes the first speaker with the id [param id]. Does nothing if there is none.
+			</description>
+		</method>
+		<method name="validate" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>
+				Returns one message per problem: an empty slot, a speaker without an id, or an id used by two speakers. Returns an empty array if the list is valid.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="speakers" type="DialogueSpeaker[]" setter="set_speakers" getter="get_speakers" default="[]">
+			The speakers. The ids should be unique: [method get_speaker] returns the first match.
+		</member>
+	</members>
+</class>

@@ -30,11 +30,16 @@
 
 #include "subtitle_server.h"
 
+#include "core/config/engine.h"
+#include "core/config/project_settings.h"
+#include "core/io/resource_loader.h"
+#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
 #include "core/string/translation_domain.h"
 #include "core/string/translation_server.h"
 #include "servers/audio/audio_server.h"
+#include "servers/tts/tts_server.h"
 
 SubtitleServer *SubtitleServer::singleton = nullptr;
 
@@ -328,11 +333,112 @@ String SubtitleServer::get_display_text(const Ref<Subtitle> &p_subtitle, const R
 
 String SubtitleServer::get_display_speaker(const Ref<Subtitle> &p_subtitle, const Ref<SubtitleSegment> &p_segment) const {
 	ERR_FAIL_COND_V(p_segment.is_null(), String());
+	// A known speaker shows its display name, translated in the subtitles channel whatever the subtitle's auto_translate says.
+	const Ref<DialogueSpeaker> known = speakers->get_speaker(p_segment->get_speaker());
+	if (known.is_valid()) {
+		return known->get_translated_name();
+	}
 	String speaker = p_segment->get_speaker();
 	if (!speaker.is_empty() && p_subtitle.is_valid() && p_subtitle->is_auto_translate() && TranslationServer::get_singleton()) {
 		speaker = TranslationServer::get_singleton()->get_or_add_domain(SNAME("subtitles"))->translate(speaker, Subtitle::SPEAKER_TRANSLATION_CONTEXT);
 	}
 	return speaker;
+}
+
+// Speakers.
+
+void SubtitleServer::_unregister_personas() {
+	TTSServer *tts_server = TTSServer::get_singleton();
+	for (const KeyValue<StringName, Ref<TTSPersona>> &E : registered_personas) {
+		// Only our own copy: the game may have added a persona of the same name since.
+		if (tts_server != nullptr && tts_server->get_base_persona(E.key) == E.value) {
+			tts_server->remove_persona(E.key);
+		}
+	}
+	registered_personas.clear();
+}
+
+void SubtitleServer::_register_personas() {
+	_unregister_personas();
+	TTSServer *tts_server = TTSServer::get_singleton();
+	if (tts_server == nullptr) {
+		return;
+	}
+	for (const Ref<DialogueSpeaker> &speaker : speakers->get_speaker_list()) {
+		if (speaker.is_null() || speaker->get_id() == StringName() || speaker->get_tts_persona().is_null() || registered_personas.has(speaker->get_id())) {
+			continue;
+		}
+		// A copy named after the speaker: one persona may be shared by several speakers.
+		Ref<TTSPersona> persona = speaker->get_tts_persona()->duplicate();
+		persona->set_persona_name(speaker->get_id());
+		tts_server->add_persona(persona);
+		registered_personas.insert(speaker->get_id(), persona);
+	}
+}
+
+void SubtitleServer::_speakers_changed() {
+	_register_personas();
+	emit_signal(SNAME("speakers_changed"), speakers);
+}
+
+void SubtitleServer::set_speakers(const Ref<DialogueSpeakers> &p_speakers) {
+	Ref<DialogueSpeakers> new_speakers = p_speakers;
+	if (new_speakers.is_null()) {
+		new_speakers.instantiate();
+	}
+	if (new_speakers == speakers) {
+		return;
+	}
+	const Callable callback = callable_mp(this, &SubtitleServer::_speakers_changed);
+	speakers->disconnect_changed(callback);
+	speakers = new_speakers;
+	speakers->connect_changed(callback);
+	_speakers_changed();
+}
+
+Ref<DialogueSpeakers> SubtitleServer::get_speakers() const {
+	return speakers;
+}
+
+void SubtitleServer::_load_speakers_from(const String &p_path) {
+	project_speakers_path = p_path;
+	Ref<DialogueSpeakers> loaded;
+	if (!p_path.is_empty()) {
+		loaded = ResourceLoader::load(p_path, "DialogueSpeakers");
+		if (loaded.is_null()) {
+			ERR_PRINT(vformat("The project setting \"%s\" names \"%s\", which is not a DialogueSpeakers resource.", SETTING_SPEAKERS, p_path));
+		}
+	}
+	set_speakers(loaded);
+}
+
+void SubtitleServer::_project_settings_changed() {
+	const String path = GLOBAL_GET(SETTING_SPEAKERS);
+	if (path != project_speakers_path) {
+		_load_speakers_from(path);
+	}
+}
+
+void SubtitleServer::load_project_speakers() {
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	ERR_FAIL_NULL(project_settings);
+	if (!project_settings_connected) {
+		project_settings->connect("settings_changed", callable_mp(this, &SubtitleServer::_project_settings_changed));
+		project_settings_connected = true;
+	}
+	const String path = GLOBAL_GET(SETTING_SPEAKERS);
+	_load_speakers_from(path);
+}
+
+void SubtitleServer::add_speaker_id_hint(PropertyInfo &r_property) {
+	if (singleton == nullptr || !Engine::get_singleton()->is_editor_hint()) {
+		return;
+	}
+	const PackedStringArray ids = singleton->speakers->get_ids();
+	if (!ids.is_empty()) {
+		r_property.hint = PROPERTY_HINT_ENUM_SUGGESTION;
+		r_property.hint_string = String(",").join(ids);
+	}
 }
 
 void SubtitleServer::set_enabled(bool p_enabled) {
@@ -419,6 +525,9 @@ void SubtitleServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_track_text", "track_id"), &SubtitleServer::get_track_text);
 	ClassDB::bind_method(D_METHOD("get_display_speaker", "subtitle", "segment"), &SubtitleServer::get_display_speaker);
 	ClassDB::bind_method(D_METHOD("get_display_text", "subtitle", "segment", "bbcode"), &SubtitleServer::get_display_text, DEFVAL(false));
+	ClassDB::bind_method(D_METHOD("set_speakers", "speakers"), &SubtitleServer::set_speakers);
+	ClassDB::bind_method(D_METHOD("get_speakers"), &SubtitleServer::get_speakers);
+	ClassDB::bind_method(D_METHOD("load_project_speakers"), &SubtitleServer::load_project_speakers);
 	ClassDB::bind_method(D_METHOD("set_enabled", "enabled"), &SubtitleServer::set_enabled);
 	ClassDB::bind_method(D_METHOD("is_enabled"), &SubtitleServer::is_enabled);
 	ClassDB::bind_method(D_METHOD("set_captions_enabled", "enabled"), &SubtitleServer::set_captions_enabled);
@@ -426,6 +535,7 @@ void SubtitleServer::_bind_methods() {
 
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "enabled"), "set_enabled", "is_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "captions_enabled"), "set_captions_enabled", "is_captions_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "speakers", PROPERTY_HINT_RESOURCE_TYPE, "DialogueSpeakers"), "set_speakers", "get_speakers");
 
 	ClassDB::bind_integer_constant(get_class_static(), StringName(), "INVALID_TRACK", INVALID_TRACK);
 
@@ -440,14 +550,21 @@ void SubtitleServer::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("track_canceled", PropertyInfo(Variant::INT, "track_id")));
 	ADD_SIGNAL(MethodInfo("enabled_changed", PropertyInfo(Variant::BOOL, "enabled")));
 	ADD_SIGNAL(MethodInfo("captions_enabled_changed", PropertyInfo(Variant::BOOL, "enabled")));
+	ADD_SIGNAL(MethodInfo("speakers_changed", PropertyInfo(Variant::OBJECT, "speakers", PROPERTY_HINT_RESOURCE_TYPE, "DialogueSpeakers")));
 }
 
 SubtitleServer::SubtitleServer() {
 	singleton = this;
+	GLOBAL_DEF(PropertyInfo(Variant::STRING, SETTING_SPEAKERS, PROPERTY_HINT_FILE, "*.tres,*.res"), "");
+	speakers.instantiate();
+	speakers->connect_changed(callable_mp(this, &SubtitleServer::_speakers_changed));
 }
 
 SubtitleServer::~SubtitleServer() {
 	_remove_callback();
 	tracks.clear();
+	_unregister_personas();
+	speakers->disconnect_changed(callable_mp(this, &SubtitleServer::_speakers_changed));
+	speakers.unref();
 	singleton = nullptr;
 }

@@ -40,7 +40,7 @@
 // `segment_changed` is left out: it follows `segment_started` or `segment_ended`, one rebuild each is enough.
 static const char *const _SUBTITLE_LABEL_PLAYER_SIGNALS[] = { "segment_started", "segment_ended" };
 static const char *const _SUBTITLE_LABEL_SETTINGS_SIGNALS[] = { "subtitles_enabled_changed", "captions_enabled_changed", "subtitle_scale_changed", "font_size_factor_changed" };
-static const char *const _SUBTITLE_LABEL_SERVER_SIGNALS[] = { "enabled_changed", "captions_enabled_changed" };
+static const char *const _SUBTITLE_LABEL_SERVER_SIGNALS[] = { "enabled_changed", "captions_enabled_changed", "speakers_changed" };
 
 SubtitlePlayer *SubtitleLabel::_get_player() const {
 	return ObjectDB::get_instance<SubtitlePlayer>(player_id);
@@ -150,9 +150,18 @@ String SubtitleLabel::_decorate_line(const String &p_line, const StringName &p_s
 		if (show_speaker_names) {
 			line = p_display_speaker.replace("[", "[lb]") + ": " + line;
 		}
+		Color line_color(1, 1, 1);
 		if (speaker_colors.has(p_speaker)) {
-			const Color color = speaker_colors.get(p_speaker, Color());
-			line = "[color=#" + color.to_html() + "]" + line + "[/color]";
+			line_color = speaker_colors.get(p_speaker, Color());
+		} else if (SubtitleServer::get_singleton() != nullptr) {
+			// The project's speakers (#483); white, their default, keeps the label's font color.
+			const Ref<DialogueSpeaker> known = SubtitleServer::get_singleton()->get_speakers()->get_speaker(p_speaker);
+			if (known.is_valid()) {
+				line_color = known->get_color();
+			}
+		}
+		if (speaker_colors.has(p_speaker) || line_color != Color(1, 1, 1)) {
+			line = "[color=#" + line_color.to_html() + "]" + line + "[/color]";
 		}
 	}
 	return line;
@@ -172,7 +181,10 @@ void SubtitleLabel::refresh() {
 	if (bbcode.is_empty() && editor_hint) {
 		// In the editor a sample line stays visible, so the label can be placed and styled without playing anything.
 		const String line = preview_text.replace("[", "[lb]");
-		bbcode = _wrap_lines(PackedStringArray({ _decorate_line(line, preview_speaker, preview_speaker) }));
+		const SubtitleServer *server = SubtitleServer::get_singleton();
+		const Ref<DialogueSpeaker> known = server != nullptr ? server->get_speakers()->get_speaker(preview_speaker) : Ref<DialogueSpeaker>();
+		const String display_speaker = known.is_valid() ? known->get_translated_name() : String(preview_speaker);
+		bbcode = _wrap_lines(PackedStringArray({ _decorate_line(line, preview_speaker, display_speaker) }));
 	}
 	if (bbcode != get_text()) {
 		set_text(bbcode);
@@ -216,6 +228,8 @@ void SubtitleLabel::_validate_property(PropertyInfo &p_property) const {
 	// `auto_translate_mode` too: the lines are translated in the `subtitles` domain, not again in the node's domain.
 	if (p_property.name == "text" || p_property.name == "bbcode_enabled" || p_property.name == "auto_translate_mode") {
 		p_property.usage = (p_property.usage & ~PROPERTY_USAGE_STORAGE) | PROPERTY_USAGE_READ_ONLY;
+	} else if (p_property.name == "preview_speaker") {
+		SubtitleServer::add_speaker_id_hint(p_property);
 	}
 }
 

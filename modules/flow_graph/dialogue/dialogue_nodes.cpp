@@ -33,6 +33,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/templates/hash_set.h"
+#include "servers/subtitle/subtitle_server.h"
 
 static TypedArray<FlowPort> _dialogue_flow_port(const StringName &p_name) {
 	TypedArray<FlowPort> ports;
@@ -176,7 +177,19 @@ String DialogueLineNode::get_translated_text() const {
 }
 
 String DialogueLineNode::get_translated_speaker_name() const {
-	return speaker_name.is_empty() ? String(speaker) : tr(speaker_name, translation_context);
+	if (!speaker_name.is_empty()) {
+		return tr(speaker_name, translation_context);
+	}
+	// The project's speakers (#483): the display name in the subtitles channel.
+	const SubtitleServer *server = SubtitleServer::get_singleton();
+	const Ref<DialogueSpeaker> known = server != nullptr ? server->get_speakers()->get_speaker(speaker) : Ref<DialogueSpeaker>();
+	return known.is_valid() ? known->get_translated_name() : String(speaker);
+}
+
+void DialogueLineNode::_validate_property(PropertyInfo &p_property) const {
+	if (p_property.name == "speaker") {
+		SubtitleServer::add_speaker_id_hint(p_property);
+	}
 }
 
 void DialogueLineNode::_bind_methods() {
