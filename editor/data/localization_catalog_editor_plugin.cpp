@@ -126,7 +126,7 @@ void LocalizationCatalogIssues::_update() {
 	}
 	status->set_text(issue_count == 0 ? TTR("No issues.") : vformat(TTR("%d issue(s). First: %s"), issue_count, first_issue));
 
-	// Missing keys per locale, collapsed; the CSV Table dock shows them in place.
+	// Missing keys per locale, collapsed; the Localization Table dock shows them in place.
 	missing_tree->clear();
 	TreeItem *root = missing_tree->create_item();
 	const int key_count = catalog->get_key_count();
@@ -167,10 +167,10 @@ LocalizationCatalogIssues::LocalizationCatalogIssues(const Ref<LocalizationCatal
 	missing_tree = memnew(Tree);
 	missing_tree->set_hide_root(true);
 	missing_tree->set_custom_minimum_size(Size2(0, 120 * EDSCALE));
-	missing_tree->set_tooltip_text(TTR("Missing translations per locale. Edit them in the CSV Table dock."));
+	missing_tree->set_tooltip_text(TTR("Missing translations per locale. Edit them in the Localization Table dock."));
 	add_child(missing_tree);
 
-	// Large catalogs: validated once after a burst of edits, like the CSV Table dock.
+	// Large catalogs: validated once after a burst of edits, like the Localization Table dock.
 	update_timer = memnew(Timer);
 	update_timer->set_one_shot(true);
 	update_timer->set_wait_time(0.5);
@@ -204,12 +204,12 @@ void EditorInspectorPluginLocalizationCatalog::parse_begin(Object *p_object) {
 	const Ref<LocalizationCatalog> catalog(Object::cast_to<LocalizationCatalog>(p_object));
 	VBoxContainer *box = memnew(VBoxContainer);
 
-	Button *table_button = memnew(Button(TTR("Open in Table")));
-	table_button->set_tooltip_text(TTR("Edit the keys, locales and notes in the CSV Table dock."));
+	Button *table_button = memnew(Button(TTR("Open in Localization Table")));
+	table_button->set_tooltip_text(TTR("Edit the keys, locales and notes in the Localization Table dock."));
 	table_button->connect(SceneStringName(pressed), callable_mp_static(&EditorInspectorPluginLocalizationCatalog::_open_in_table).bind(catalog));
 	box->add_child(table_button);
 
-	box->add_child(memnew(LocalizationCatalogIssues(catalog))); // Follows edits in the CSV Table dock.
+	box->add_child(memnew(LocalizationCatalogIssues(catalog))); // Follows edits in the Localization Table dock.
 
 	if (Object::cast_to<TextLocalizationCatalog>(p_object)) {
 		EditorFileDialog *dialog = memnew(EditorFileDialog);

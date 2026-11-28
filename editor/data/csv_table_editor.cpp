@@ -1001,16 +1001,29 @@ void CSVTableEditor::_tree_gui_input(const Ref<InputEvent> &p_event) {
 	}
 }
 
+bool CSVTableEditor::is_translation_csv(const CSV *p_csv) {
+	// The header decides, not the importer: a data CSV with a Keep File or CSV Translation import has no translations to check.
+	CSV::TranslationHeader translation_header;
+	Ref<DataValidation> header_issues;
+	header_issues.instantiate();
+	CSV::check_translation_header(p_csv->get_header(), translation_header, header_issues.ptr());
+	return translation_header.has_known_language;
+}
+
 bool CSVTableEditor::can_edit(const Object *p_object) {
-	if (Object::cast_to<CSV>(p_object) || Object::cast_to<LocalizationCatalog>(p_object)) {
+	if (Object::cast_to<LocalizationCatalog>(p_object)) {
 		return true;
+	}
+	// Data CSVs open in the Dataset dock (#436).
+	if (const CSV *csv_resource = Object::cast_to<CSV>(p_object)) {
+		return is_translation_csv(csv_resource);
 	}
 	const TextFile *text_file = Object::cast_to<TextFile>(p_object);
 	return text_file && text_file->get_path().get_extension().to_lower() == "csv";
 }
 
 void CSVTableEditor::_inspector_object_changed() {
-	// Opened with "Open in Table", the dock is not closed by the editor when another file is inspected.
+	// Opened with "Open in Localization Table", the dock is not closed by the editor when another file is inspected.
 	// A catalog stays open until another table object replaces it (#391).
 	const Resource *inspected = Object::cast_to<Resource>(InspectorDock::get_inspector_singleton()->get_edited_object());
 	if (catalog.is_null() && inspected && !inspected->get_path().is_empty() && !can_edit(inspected)) {
@@ -1129,9 +1142,9 @@ void CSVTableEditor::edit(const Ref<Resource> &p_resource) {
 
 CSVTableEditor::CSVTableEditor() {
 	singleton = this;
-	set_name(TTRC("CSV Table"));
+	set_name(TTRC("Localization Table"));
 	set_icon_name("TextFile");
-	set_dock_shortcut(ED_SHORTCUT_AND_COMMAND("bottom_panels/toggle_csv_table_bottom_panel", TTRC("Toggle CSV Table Dock")));
+	set_dock_shortcut(ED_SHORTCUT_AND_COMMAND("bottom_panels/toggle_csv_table_bottom_panel", TTRC("Toggle Localization Table Dock")));
 	set_default_slot(EditorDock::DOCK_SLOT_BOTTOM);
 	set_available_layouts(EditorDock::DOCK_LAYOUT_HORIZONTAL | EditorDock::DOCK_LAYOUT_FLOATING);
 	set_global(false);
