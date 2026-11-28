@@ -43,16 +43,6 @@ String INIInspectorView::get_summary_text(const Variant &p_data) const {
 	return vformat(TTRN("%d section", "%d sections", sections.size()), sections.size()) + ", " + vformat(TTRN("%d key", "%d keys", key_count), key_count);
 }
 
-void INIInspectorView::decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const {
-	if (!p_top_level) {
-		return;
-	}
-	r_entry.type = TTR("Section");
-	if (r_entry.key.is_empty()) {
-		r_entry.key = TTR("(no section)"); // As in the INI dock.
-	}
-}
-
 void INIInspectorView::_open_in_ini_dock() {
 	INIEditor *ini_editor = INIEditor::get_singleton();
 	if (ini_editor) {

@@ -36,7 +36,7 @@ class DataSchema;
 
 // The inspector view of a CSV: rows and columns in the summary, the first rows as a table whose column titles
 // show the column's field of the data schema, Open in Localization Table Dock (translation CSVs, first) and the
-// shared Open in Dataset Dock.
+// shared Open in Dataset Dock. A CSV with the header Path,Key,Value shows the tree of CSVTreeAdapter instead.
 class CSVInspectorView : public DataFileInspectorView {
 	GDCLASS(CSVInspectorView, DataFileInspectorView);
 
@@ -57,6 +57,9 @@ public:
 	virtual String get_summary_text(const Variant &p_data) const override;
 	// The tooltip of a column title: the column's field in the data schema (type, required, description).
 	static String get_column_tooltip(const String &p_column, const Ref<DataSchema> &p_schema);
+	// Characters of the longest cell per column (at most p_max_columns columns) in the header and the first
+	// p_max_rows rows, capped at p_max_chars.
+	static PackedInt32Array get_column_chars(const PackedStringArray &p_header, const Array &p_rows, int p_max_rows, int p_max_columns, int p_max_chars);
 
 	CSVInspectorView(const Ref<Resource> &p_resource);
 };

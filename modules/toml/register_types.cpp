@@ -44,6 +44,7 @@
 #include "editor/script/script_editor_plugin.h"
 #include "editor/toml_inspector_plugin.h"
 #include "editor/toml_syntax_highlighter.h"
+#include "editor/toml_tree_adapter.h"
 
 static void _register_toml_syntax_highlighter() {
 	Ref<EditorTOMLSyntaxHighlighter> highlighter;
@@ -80,6 +81,9 @@ void initialize_toml_module(ModuleInitializationLevel p_level) {
 	}
 
 	GDREGISTER_CLASS(TOML);
+#ifdef TOOLS_ENABLED
+	DataTreeAdapter::register_adapter("TOML", &TOMLTreeAdapter::create);
+#endif // TOOLS_ENABLED
 
 	resource_loader_toml.instantiate();
 	ResourceLoader::add_resource_format_loader(resource_loader_toml);
