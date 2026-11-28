@@ -89,7 +89,6 @@
 #include "servers/rendering/rendering_server_default.h"
 #include "servers/settings/settings_server_manager.h"
 #include "servers/settings/window_settings_server.h"
-#include "servers/subtitle/subtitle_server.h"
 #include "servers/text/text_server.h"
 #include "servers/text/text_server_dummy.h"
 
@@ -3939,8 +3938,6 @@ Error Main::setup2(bool p_show_boot_logo) {
 	// After the scene types and modules: `.tres` catalogs and the TOML/YAML formats can be loaded.
 	TextLocalizationServer::get_singleton()->load_project_catalogs();
 	ResourceLocalizationServer::get_singleton()->load_project_catalogs();
-	// `audio/subtitles/speakers` (#483): a `.tres` with TTS personas, loaded like the catalogs.
-	SubtitleServer::get_singleton()->load_project_speakers();
 
 #ifdef TOOLS_ENABLED
 	ClassDB::set_current_api(ClassDB::API_EDITOR);

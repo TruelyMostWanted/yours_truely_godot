@@ -37,6 +37,7 @@
 #include "core/object/class_db.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
+#include "core/string/resource_localization_server.h"
 #include "core/string/translation_domain.h"
 #include "core/string/translation_server.h"
 #include "servers/audio/audio_server.h"
@@ -560,6 +561,12 @@ SubtitleServer::SubtitleServer() {
 	GLOBAL_DEF(PropertyInfo(Variant::STRING, SETTING_SPEAKERS, PROPERTY_HINT_FILE, "*.tres,*.res"), "");
 	speakers.instantiate();
 	speakers->connect_changed(callable_mp(this, &SubtitleServer::_speakers_changed));
+	// Startup: after the resource localization catalogs (Main::setup2(), once scene types and formats exist), so a
+	// localized speakers path resolves. No line in main.cpp of its own.
+	ResourceLocalizationServer *resource_localization = ResourceLocalizationServer::get_singleton();
+	if (resource_localization != nullptr) {
+		resource_localization->connect(SNAME("catalogs_changed"), callable_mp(this, &SubtitleServer::load_project_speakers), CONNECT_ONE_SHOT);
+	}
 }
 
 SubtitleServer::~SubtitleServer() {

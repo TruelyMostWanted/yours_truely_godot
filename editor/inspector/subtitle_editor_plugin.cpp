@@ -39,6 +39,7 @@
 #include "editor/editor_interface.h"
 #include "editor/editor_string_names.h"
 #include "editor/editor_undo_redo_manager.h"
+#include "editor/inspector/dialogue_speaker_editor_plugin.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
 #include "scene/gui/flow_container.h"
@@ -602,4 +603,7 @@ SubtitleEditorPlugin::SubtitleEditorPlugin() {
 	Ref<EditorInspectorPluginSubtitleSync> sync_plugin;
 	sync_plugin.instantiate();
 	add_inspector_plugin(sync_plugin);
+	Ref<EditorInspectorPluginDialogueSpeaker> speaker_plugin; // Portrait and validation previews (#483).
+	speaker_plugin.instantiate();
+	add_inspector_plugin(speaker_plugin);
 }

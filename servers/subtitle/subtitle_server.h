@@ -117,7 +117,8 @@ public:
 
 	void set_speakers(const Ref<DialogueSpeakers> &p_speakers);
 	Ref<DialogueSpeakers> get_speakers() const;
-	// Loads the speakers of `audio/subtitles/speakers`. Called at startup and when the setting changes.
+	// Loads the speakers of `audio/subtitles/speakers`. Called at startup (the first `catalogs_changed` of
+	// ResourceLocalizationServer, from `load_project_catalogs()`) and when the setting names another file.
 	void load_project_speakers();
 	// Inspector: the speaker ids as suggestions on a StringName property (in the editor only).
 	static void add_speaker_id_hint(PropertyInfo &r_property);
