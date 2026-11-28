@@ -41,6 +41,7 @@
 
 #ifdef TOOLS_ENABLED
 #include "../editor/database_editor.h"
+#include "../editor/database_table_dialog.h"
 #endif
 
 namespace TestSQLite {
@@ -578,6 +579,68 @@ TEST_CASE("[SQLite] Database dock: keys, views and a save of several tables") {
 	REQUIRE(db->rollback() == OK);
 	CHECK(db->get_row_count("notes") == 0);
 	CHECK(db->get_row_count("items") == 1);
+
+	db->close();
+	DirAccess::remove_absolute(db_path);
+}
+
+TEST_CASE("[SQLite] Database dock: Edit Table and Add Column") {
+	const String db_path = _fresh_db_path("sqlite_database_dock_columns.db");
+	Ref<SQLiteDatabase> db;
+	db.instantiate();
+	REQUIRE(db->open(db_path) == OK);
+	REQUIRE(db->execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, price REAL DEFAULT 1.5);"
+						"CREATE INDEX items_price ON items (price);"
+						"INSERT INTO items VALUES (1, 'a', 2.0), (2, 'b', 3.0);") == OK);
+	String message;
+
+	// Rename and a new column at the end: ALTER TABLE keeps the UNIQUE clause.
+	LocalVector<DatabaseTableDialog::ColumnSpec> columns = DatabaseTableDialog::read_columns(db, "items");
+	REQUIRE(columns.size() == 3);
+	CHECK(columns[0].primary_key);
+	CHECK(columns[1].not_null);
+	CHECK(columns[2].default_value == "1.5");
+	columns[1].name = "title";
+	DatabaseTableDialog::ColumnSpec weight;
+	weight.name = "weight";
+	weight.declared_type = "REAL";
+	weight.default_value = "0";
+	columns.push_back(weight);
+	CHECK(DatabaseTableDialog::apply_columns(db, "items", columns, message) == OK);
+	const PackedStringArray renamed_names = { "id", "title", "price", "weight" };
+	CHECK(db->get_column_names("items") == renamed_names);
+	CHECK(db->execute("INSERT INTO items (id, title) VALUES (3, 'a');") != OK); // Still UNIQUE.
+	CHECK(double(Dictionary(db->query("SELECT weight FROM items WHERE id = 1;")[0])["weight"]) == doctest::Approx(0.0));
+
+	// A type change and a new order: the table is copied with its rows and indexes.
+	columns = DatabaseTableDialog::read_columns(db, "items");
+	columns[2].declared_type = "NUMERIC";
+	const DatabaseTableDialog::ColumnSpec moved = columns[3];
+	columns.remove_at(3);
+	columns.insert(1, moved);
+	CHECK(DatabaseTableDialog::apply_columns(db, "items", columns, message) == OK);
+	const PackedStringArray copied_names = { "id", "weight", "title", "price" };
+	CHECK(db->get_column_names("items") == copied_names);
+	CHECK(db->get_row_count("items") == 2);
+	CHECK(Dictionary(db->query("SELECT title FROM items WHERE id = 2;")[0])["title"] == Variant("b"));
+	CHECK(db->query("SELECT name FROM sqlite_schema WHERE name = 'items_price';").size() == 1);
+	CHECK_FALSE(db->has_table("items_dock_copy"));
+
+	// A failing change writes nothing: NOT NULL without a default on a table with rows.
+	columns = DatabaseTableDialog::read_columns(db, "items");
+	DatabaseTableDialog::ColumnSpec required;
+	required.name = "required";
+	required.not_null = true;
+	columns.insert(0, required);
+	CHECK(DatabaseTableDialog::apply_columns(db, "items", columns, message) != OK);
+	CHECK(message.contains("NOT NULL"));
+	CHECK_FALSE(db->is_in_transaction());
+	CHECK(db->get_column_names("items") == copied_names);
+
+	// Duplicate names are refused before anything runs.
+	columns = DatabaseTableDialog::read_columns(db, "items");
+	columns[1].name = "ID";
+	CHECK(DatabaseTableDialog::apply_columns(db, "items", columns, message) == ERR_INVALID_PARAMETER);
 
 	db->close();
 	DirAccess::remove_absolute(db_path);

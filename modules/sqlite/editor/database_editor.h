@@ -40,6 +40,8 @@
 class AcceptDialog;
 class Button;
 class ConfirmationDialog;
+class DatabaseTableDialog;
+class EditorFileDialog;
 class Label;
 class LineEdit;
 class MenuButton;
@@ -61,6 +63,9 @@ class DatabaseEditor : public EditorDock {
 		TABLE_MENU_RENAME,
 		TABLE_MENU_DELETE,
 		TABLE_MENU_REFRESH,
+		TABLE_MENU_OPEN,
+		TABLE_MENU_EDIT,
+		TABLE_MENU_ADD_COLUMN,
 	};
 
 	enum ValuesMenuItem {
@@ -126,6 +131,8 @@ class DatabaseEditor : public EditorDock {
 	ConfirmationDialog *rename_dialog = nullptr;
 	LineEdit *rename_edit = nullptr;
 	ConfirmationDialog *delete_dialog = nullptr;
+	DatabaseTableDialog *table_dialog = nullptr;
+	EditorFileDialog *open_dialog = nullptr;
 	AcceptDialog *query_dialog = nullptr;
 	TextEdit *query_edit = nullptr;
 	Tree *query_tree = nullptr;
@@ -165,6 +172,8 @@ class DatabaseEditor : public EditorDock {
 	void _create_confirmed();
 	void _rename_confirmed();
 	void _delete_confirmed();
+	void _table_dialog_applied(const String &p_message);
+	void _open_file_selected(const String &p_path);
 	void _open_query();
 	void _run_query();
 	void _filter_changed(const String &p_text);

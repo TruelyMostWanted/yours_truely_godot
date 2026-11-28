@@ -31,6 +31,7 @@
 #include "database_editor.h"
 
 #include "../sqlite_statement.h"
+#include "database_table_dialog.h"
 
 #include "core/config/project_settings.h"
 #include "core/input/input_event.h"
@@ -41,6 +42,7 @@
 #include "editor/docks/inspector_dock.h"
 #include "editor/editor_string_names.h"
 #include "editor/file_system/editor_file_system.h"
+#include "editor/gui/editor_file_dialog.h"
 #include "editor/inspector/editor_inspector.h"
 #include "editor/run/editor_run_bar.h"
 #include "editor/settings/editor_command_palette.h"
@@ -331,6 +333,8 @@ void DatabaseEditor::_update_actions() {
 	PopupMenu *popup = table_menu->get_popup();
 	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_CREATE), entry == nullptr);
 	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_RENAME), table.is_empty() || view);
+	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_EDIT), table.is_empty() || view);
+	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_ADD_COLUMN), table.is_empty() || view);
 	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_DELETE), table.is_empty());
 	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_REFRESH), databases.is_empty());
 	popup = values_menu->get_popup();
@@ -814,6 +818,18 @@ void DatabaseEditor::_table_menu_pressed(int p_id) {
 			_select_table(database, table);
 			_update_side_bar();
 		} break;
+		case TABLE_MENU_OPEN: {
+			open_dialog->popup_file_dialog();
+		} break;
+		case TABLE_MENU_EDIT:
+		case TABLE_MENU_ADD_COLUMN: {
+			// The change may rebuild the table: pending edits would point at rows that changed.
+			if (_has_pending(table)) {
+				status_label->set_text(TTR("Save or revert the edits of this table first."));
+				return;
+			}
+			table_dialog->edit_table(database, table, p_id == TABLE_MENU_ADD_COLUMN, callable_mp(this, &DatabaseEditor::_table_dialog_applied));
+		} break;
 	}
 }
 
@@ -946,6 +962,19 @@ void DatabaseEditor::_delete_confirmed() {
 	_report_written(database, vformat(TTR("Deleted \"%s\"."), deleted));
 }
 
+void DatabaseEditor::_table_dialog_applied(const String &p_message) {
+	OpenDatabase *entry = _get_selected();
+	ERR_FAIL_NULL(entry);
+	entry->undo_redo->clear_history(); // The history may hold edits of columns that changed.
+	_select_table(database, table);
+	_report_written(database, p_message);
+}
+
+void DatabaseEditor::_open_file_selected(const String &p_path) {
+	edit(ProjectSettings::get_singleton()->localize_path(p_path));
+	make_visible();
+}
+
 void DatabaseEditor::_open_query() {
 	const OpenDatabase *entry = _get_selected();
 	if (entry == nullptr) {
@@ -1053,6 +1082,11 @@ void DatabaseEditor::_tree_gui_input(const Ref<InputEvent> &p_event) {
 		_undo_redo(true);
 	} else if (key_event->get_keycode() == Key::KEY_DELETE) {
 		_delete_rows();
+	} else if (key_event->is_command_or_control_pressed() && key_event->get_keycode() == Key::F) {
+		filter_edit->grab_focus();
+		filter_edit->select_all();
+	} else if (key_event->is_command_or_control_pressed() && key_event->get_keycode() == Key::N) {
+		_insert_row();
 	} else {
 		return;
 	}
@@ -1205,7 +1239,11 @@ DatabaseEditor::DatabaseEditor() {
 	table_menu->set_text(TTR("Table"));
 	table_menu->set_switch_on_hover(true);
 	PopupMenu *popup = table_menu->get_popup();
+	popup->add_item(TTR("Open Database..."), TABLE_MENU_OPEN);
+	popup->add_separator();
 	popup->add_item(TTR("Create with SQL..."), TABLE_MENU_CREATE);
+	popup->add_item(TTR("Edit Table..."), TABLE_MENU_EDIT);
+	popup->add_item(TTR("Add Column..."), TABLE_MENU_ADD_COLUMN);
 	popup->add_item(TTR("Rename..."), TABLE_MENU_RENAME);
 	popup->add_item(TTR("Delete..."), TABLE_MENU_DELETE);
 	popup->add_separator();
@@ -1218,7 +1256,7 @@ DatabaseEditor::DatabaseEditor() {
 	values_menu->set_text(TTR("Values"));
 	values_menu->set_switch_on_hover(true);
 	popup = values_menu->get_popup();
-	popup->add_item(TTR("Insert Row"), VALUES_MENU_INSERT_ROW);
+	popup->add_item(TTR("Insert Row (Ctrl+N in the table)"), VALUES_MENU_INSERT_ROW);
 	popup->add_item(TTR("Delete Rows"), VALUES_MENU_DELETE_ROWS);
 	popup->add_item(TTR("Set NULL"), VALUES_MENU_SET_NULL);
 	popup->add_separator();
@@ -1235,6 +1273,7 @@ DatabaseEditor::DatabaseEditor() {
 
 	filter_edit = memnew(LineEdit);
 	filter_edit->set_placeholder(TTR("Filter rows"));
+	filter_edit->set_tooltip_text(TTR("Rows where any column contains the text (Ctrl+F in the table)."));
 	filter_edit->set_clear_button_enabled(true);
 	filter_edit->set_h_size_flags(SIZE_EXPAND_FILL);
 	filter_edit->connect(SceneStringName(text_changed), callable_mp(this, &DatabaseEditor::_filter_changed));
@@ -1328,6 +1367,17 @@ DatabaseEditor::DatabaseEditor() {
 	delete_dialog->set_ok_button_text(TTR("Delete"));
 	delete_dialog->connect(SceneStringName(confirmed), callable_mp(this, &DatabaseEditor::_delete_confirmed));
 	add_child(delete_dialog);
+
+	table_dialog = memnew(DatabaseTableDialog);
+	add_child(table_dialog);
+
+	open_dialog = memnew(EditorFileDialog);
+	open_dialog->set_title(TTR("Open Database"));
+	open_dialog->set_file_mode(EditorFileDialog::FILE_MODE_OPEN_FILE);
+	open_dialog->set_access(EditorFileDialog::ACCESS_FILESYSTEM);
+	open_dialog->add_filter("*.db, *.sqlite, *.sqlite3, *.db3", TTR("SQLite Database"));
+	open_dialog->connect("file_selected", callable_mp(this, &DatabaseEditor::_open_file_selected));
+	add_child(open_dialog);
 
 	query_dialog = memnew(AcceptDialog);
 	query_dialog->set_ok_button_text(TTR("Run"));
