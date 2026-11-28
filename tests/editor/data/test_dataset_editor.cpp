@@ -43,6 +43,8 @@ TEST_FORCE_LINK(test_dataset_editor)
 #include "editor/data/csv_table_editor.h"
 #include "editor/data/dataset_editor.h"
 
+#include "modules/modules_enabled.gen.h" // For yaml, toml.
+
 namespace TestDatasetEditor {
 
 static Ref<JSON> make_json(const String &p_text) {
