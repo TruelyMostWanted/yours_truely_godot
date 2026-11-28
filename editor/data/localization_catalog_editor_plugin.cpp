@@ -193,22 +193,11 @@ void EditorInspectorPluginLocalizationCatalog::_save_pot(const String &p_path, c
 	EditorFileSystem::get_singleton()->update_file(p_path); // Listed in the FileSystem dock right away.
 }
 
-void EditorInspectorPluginLocalizationCatalog::_open_in_table(const Ref<LocalizationCatalog> &p_catalog) {
-	CSVTableEditor *table = CSVTableEditor::get_singleton();
-	ERR_FAIL_NULL(table);
-	table->edit(p_catalog);
-	table->make_visible();
-}
-
 void EditorInspectorPluginLocalizationCatalog::parse_begin(Object *p_object) {
 	const Ref<LocalizationCatalog> catalog(Object::cast_to<LocalizationCatalog>(p_object));
 	VBoxContainer *box = memnew(VBoxContainer);
 
-	Button *table_button = memnew(Button(TTR("Open in Localization Table Dock")));
-	table_button->set_tooltip_text(TTR("Edit the keys, locales and notes in the Localization Table dock."));
-	table_button->connect(SceneStringName(pressed), callable_mp_static(&EditorInspectorPluginLocalizationCatalog::_open_in_table).bind(catalog));
-	box->add_child(table_button);
-
+	// No dock button: the Localization Table opens with the catalog (CSVTableEditor::can_edit()).
 	box->add_child(memnew(LocalizationCatalogIssues(catalog))); // Follows edits in the Localization Table dock.
 
 	if (Object::cast_to<TextLocalizationCatalog>(p_object)) {

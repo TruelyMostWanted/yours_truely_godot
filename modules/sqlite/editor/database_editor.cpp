@@ -349,7 +349,7 @@ void DatabaseEditor::_update_actions() {
 	save_button->set_disabled(!has_pending);
 
 	if (databases.is_empty()) {
-		empty_label->set_text(TTR("Double-click a database file (.db, .sqlite, .sqlite3, .db3) in the FileSystem dock, or use \"Open in Database\" in the Inspector."));
+		empty_label->set_text(TTR("Double-click a database file (.db, .sqlite, .sqlite3, .db3) in the FileSystem dock to open it here."));
 	} else if (table.is_empty()) {
 		empty_label->set_text(TTR("Select a table or view in the side bar, or create one with Table > Create with SQL."));
 	} else if (rows.is_empty() && _database_editor_is_empty(_get_changes())) {

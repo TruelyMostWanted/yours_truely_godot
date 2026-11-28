@@ -38,23 +38,19 @@ class Button;
 class DatabaseEditor;
 class Label;
 class Tree;
-class TreeItem;
 
 // The tables of a database file in the Inspector: name, column count and row count (the quick path).
-// "Open in Database" and the edit button of a table open the Database dock (#437).
+// Read-only; the Database dock opens with the file (#437, #464).
 class SQLiteTableOverview : public VBoxContainer {
 	GDCLASS(SQLiteTableOverview, VBoxContainer);
 
 	String path;
 	Label *summary_label = nullptr;
 	Button *refresh_button = nullptr;
-	Button *open_button = nullptr;
 	Tree *tree = nullptr;
 
 	void _update();
 	void _count_rows();
-	void _open_in_dock(const String &p_table);
-	void _edit_table(TreeItem *p_item, int p_column, int p_id, MouseButton p_button);
 
 protected:
 	void _notification(int p_what);

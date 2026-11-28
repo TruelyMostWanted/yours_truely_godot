@@ -33,12 +33,9 @@
 #include "core/io/csv_format.h"
 #include "core/io/data_field.h"
 #include "core/io/data_schema.h"
-#include "core/object/callable_mp.h"
-#include "editor/data/csv_table_editor.h"
 #include "editor/editor_string_names.h"
 #include "editor/script/data_schema_lookup.h"
 #include "editor/themes/editor_scale.h"
-#include "scene/gui/button.h"
 #include "scene/gui/label.h"
 #include "scene/gui/line_edit.h"
 #include "scene/gui/tree.h"
@@ -89,18 +86,6 @@ String CSVInspectorView::get_summary_text(const Variant &p_data) const {
 	const int rows = csv->get_row_count();
 	const int columns = csv->get_column_count();
 	return vformat(TTRN("%d row", "%d rows", rows), rows) + ", " + vformat(TTRN("%d column", "%d columns", columns), columns);
-}
-
-void CSVInspectorView::_update_dock_buttons() {
-	localization_button->set_visible(CSVTableEditor::can_edit(resource.ptr()));
-}
-
-void CSVInspectorView::_open_in_localization_table_dock() {
-	CSVTableEditor *table_editor = CSVTableEditor::get_singleton();
-	if (table_editor && CSVTableEditor::can_edit(resource.ptr())) {
-		table_editor->edit(resource);
-		table_editor->make_visible();
-	}
 }
 
 void CSVInspectorView::_update_preview(const Variant &p_data) {
@@ -160,11 +145,7 @@ void CSVInspectorView::_update_preview(const Variant &p_data) {
 	if (column_count > chars.size()) {
 		more.push_back(vformat(TTR("%d more columns"), column_count - chars.size()));
 	}
-	String more_text = more.is_empty() ? String() : String(", ").join(more) + ".";
-	if (!more.is_empty() && dataset_button->is_visible()) {
-		more_text += " " + TTR("Open in Dataset Dock to see all.");
-	}
-	more_label->set_text(more_text);
+	more_label->set_text(more.is_empty() ? String() : String(", ").join(more) + ".");
 	more_label->set_visible(!more.is_empty());
 
 	tree->set_custom_minimum_size(Size2(0, (MIN(row_count, 12) + 2) * _get_row_height()));
@@ -173,8 +154,6 @@ void CSVInspectorView::_update_preview(const Variant &p_data) {
 CSVInspectorView::CSVInspectorView(const Ref<Resource> &p_resource) :
 		DataFileInspectorView(p_resource) {
 	search->set_visible(adapter.is_valid()); // A table shows rows, not a tree to search.
-	localization_button = _add_dock_button(TTR("Open in Localization Table Dock"), TTR("Edit the translations in the Localization Table dock."), callable_mp(this, &CSVInspectorView::_open_in_localization_table_dock));
-	localization_button->hide();
 }
 
 // EditorInspectorPluginCSV

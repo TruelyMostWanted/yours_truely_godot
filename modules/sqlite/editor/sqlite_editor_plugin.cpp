@@ -49,10 +49,6 @@ enum {
 	COLUMN_MAX,
 };
 
-enum {
-	BUTTON_EDIT,
-};
-
 // Above this file size, rows are counted on demand: COUNT(*) reads the whole table.
 static constexpr int64_t ROW_COUNT_SIZE_LIMIT = 16 * 1024 * 1024;
 
@@ -72,7 +68,6 @@ void SQLiteTableOverview::_update() {
 	const int64_t file_size = FileAccess::get_size(path);
 	const bool count_on_demand = file_size > ROW_COUNT_SIZE_LIMIT;
 	const PackedStringArray tables = database->get_table_names();
-	const Ref<Texture2D> edit_icon = get_editor_theme_icon(SNAME("Edit"));
 	TreeItem *root = tree->create_item();
 	for (const String &table : tables) {
 		const TypedArray<SQLiteColumn> columns = database->get_columns(table);
@@ -106,7 +101,6 @@ void SQLiteTableOverview::_update() {
 		for (int tree_column = 0; tree_column < COLUMN_MAX; tree_column++) {
 			item->set_tooltip_text(tree_column, tooltip);
 		}
-		item->add_button(COLUMN_TABLE, edit_icon, BUTTON_EDIT, false, TTR("Edit the rows of the table in the Database dock."));
 	}
 	database->close();
 
@@ -125,25 +119,10 @@ void SQLiteTableOverview::_count_rows() {
 	}
 }
 
-void SQLiteTableOverview::_open_in_dock(const String &p_table) {
-	DatabaseEditor *database_editor = DatabaseEditor::get_singleton();
-	if (database_editor) {
-		database_editor->edit(path, p_table);
-		database_editor->make_visible();
-	}
-}
-
-void SQLiteTableOverview::_edit_table(TreeItem *p_item, int p_column, int p_id, MouseButton p_button) {
-	if (p_button == MouseButton::LEFT && p_id == BUTTON_EDIT) {
-		_open_in_dock(p_item->get_text(COLUMN_TABLE));
-	}
-}
-
 void SQLiteTableOverview::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_THEME_CHANGED: {
 			refresh_button->set_button_icon(get_editor_theme_icon(SNAME("Reload")));
-			open_button->set_button_icon(get_editor_theme_icon(SNAME("SQLiteDatabase")));
 			_update();
 		} break;
 	}
@@ -157,16 +136,12 @@ SQLiteTableOverview::SQLiteTableOverview(const String &p_path) {
 	summary_label->set_custom_minimum_size(Size2(100, 0) * EDSCALE);
 	add_child(summary_label);
 
-	HBoxContainer *button_row = memnew(HBoxContainer);
-	add_child(button_row);
-	open_button = memnew(Button(TTR("Open in Database")));
-	open_button->set_tooltip_text(TTR("Edit the tables and rows of the file in the Database dock."));
-	open_button->connect(SceneStringName(pressed), callable_mp(this, &SQLiteTableOverview::_open_in_dock).bind(String()));
-	button_row->add_child(open_button);
+	// No dock button: the Database dock opens with the file (SQLiteEditorPlugin::handles(), #464).
 	refresh_button = memnew(Button(TTR("Refresh")));
 	refresh_button->set_tooltip_text(TTR("Read the tables of the file again."));
+	refresh_button->set_h_size_flags(SIZE_SHRINK_BEGIN);
 	refresh_button->connect(SceneStringName(pressed), callable_mp(this, &SQLiteTableOverview::_update));
-	button_row->add_child(refresh_button);
+	add_child(refresh_button);
 
 	tree = memnew(Tree);
 	tree->set_columns(COLUMN_MAX);
@@ -183,7 +158,6 @@ SQLiteTableOverview::SQLiteTableOverview(const String &p_path) {
 	}
 	tree->set_custom_minimum_size(Size2(0, 200) * EDSCALE);
 	tree->connect("item_activated", callable_mp(this, &SQLiteTableOverview::_count_rows));
-	tree->connect("button_clicked", callable_mp(this, &SQLiteTableOverview::_edit_table));
 	add_child(tree);
 }
 

@@ -36,7 +36,6 @@
 #include "core/variant/variant_utility.h"
 #include "editor/docks/editor_dock_manager.h"
 #include "editor/docks/filesystem_dock.h"
-#include "editor/docks/inspector_dock.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
 #include "editor/editor_undo_redo_manager.h"
@@ -363,7 +362,7 @@ void INIEditor::_section_selected() {
 	add_key_button->set_disabled(ini.is_null());
 	remove_key_button->set_disabled(keys.is_empty());
 	if (ini.is_null()) {
-		empty_label->set_text(TTR("Open an INI file with \"Open in INI Dock\" in the inspector."));
+		empty_label->set_text(TTR("Double-click an INI file (.ini, .cfg) in the FileSystem dock to open it here."));
 	} else if (file_data.is_empty()) {
 		empty_label->set_text(TTR("The file has no keys yet. Add a section or a key."));
 	} else if (keys.is_empty()) {
@@ -593,15 +592,6 @@ void INIEditor::_tree_gui_input(const Ref<InputEvent> &p_event, bool p_sections)
 	}
 }
 
-void INIEditor::_inspector_object_changed() {
-	// Opened with "Open in INI Dock", the dock is not closed by the editor when another file is inspected.
-	const Resource *inspected = Object::cast_to<Resource>(InspectorDock::get_inspector_singleton()->get_edited_object());
-	if (inspected && inspected != ini.ptr() && !inspected->get_path().is_empty()) {
-		edit(Ref<INI>());
-		close();
-	}
-}
-
 void INIEditor::_file_removed(const String &p_file) {
 	if (ini.is_valid() && p_file == ini->get_path()) {
 		edit(Ref<INI>());
@@ -611,9 +601,6 @@ void INIEditor::_file_removed(const String &p_file) {
 
 void INIEditor::_notification(int p_what) {
 	if (p_what == NOTIFICATION_READY) {
-		if (InspectorDock::get_singleton()) {
-			InspectorDock::get_inspector_singleton()->connect(SNAME("edited_object_changed"), callable_mp(this, &INIEditor::_inspector_object_changed));
-		}
 		if (FileSystemDock::get_singleton()) {
 			FileSystemDock::get_singleton()->connect(SNAME("file_removed"), callable_mp(this, &INIEditor::_file_removed));
 		}
@@ -735,17 +722,21 @@ INIEditor::~INIEditor() {
 	}
 }
 
+bool INIEditor::can_edit(const Object *p_object) {
+	const INI *ini_resource = Object::cast_to<INI>(p_object);
+	return ini_resource && ini_resource->is_recognized_path(ini_resource->get_path());
+}
+
 void INIEditorPlugin::edit(Object *p_object) {
 	ini_editor->edit(Ref<INI>(Object::cast_to<INI>(p_object)));
 }
 
 bool INIEditorPlugin::handles(Object *p_object) const {
-	// Opened from the inspector by default; with the editor setting also when the file opens (double-click).
-	const INI *ini = Object::cast_to<INI>(p_object);
-	return ini && ini->is_recognized_path(ini->get_path()) && bool(EDITOR_GET("docks/ini_editor/open_on_double_click"));
+	return INIEditor::can_edit(p_object);
 }
 
 void INIEditorPlugin::make_visible(bool p_visible) {
+	// Opens only: the dock stays at the last INI file while other objects are edited (ARCHITECTURE.md 7.3).
 	if (p_visible) {
 		ini_editor->make_visible();
 	}

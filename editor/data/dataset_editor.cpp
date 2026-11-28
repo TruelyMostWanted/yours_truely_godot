@@ -71,7 +71,9 @@
 #include "scene/gui/split_container.h"
 #include "scene/gui/text_edit.h"
 #include "scene/gui/tree.h"
+#include "scene/main/scene_tree.h"
 #include "scene/main/timer.h"
+#include "scene/main/viewport.h"
 #include "servers/display/display_server.h"
 
 static int64_t _dataset_cell_key(int p_row, int p_tree_column) {
@@ -1307,7 +1309,7 @@ void DatasetEditor::_update() {
 	schema_label->set_visible(source == SOURCE_CSV);
 	schema_picker->set_visible(source == SOURCE_CSV);
 	if (!file) {
-		empty_label->set_text(TTR("Open a CSV file, or a JSON, YAML, TOML, INI or XML file with table-shaped data: double-click it in the FileSystem dock, or use \"Open in Dataset Dock\" in its context menu or in the Inspector."));
+		empty_label->set_text(TTR("Open a CSV file, or a JSON, YAML, TOML, INI or XML file with table-shaped data: double-click it in the FileSystem dock, or use \"Open in Dataset Dock\" in its context menu."));
 		page_label->set_text(String());
 		previous_button->set_disabled(true);
 		next_button->set_disabled(true);
@@ -1746,9 +1748,29 @@ void DatasetEditor::_notification(int p_what) {
 	}
 }
 
+void DatasetEditor::_restore_focus(ObjectID p_focus_owner) {
+	// Opening a file raises the dock without taking the keyboard focus (#464): if it moved into the dock while
+	// the table was built and shown, it goes back to where the user was.
+	Control *previous = ObjectDB::get_instance<Control>(p_focus_owner);
+	const Viewport *viewport = get_viewport();
+	const Control *focus_owner = viewport ? viewport->gui_get_focus_owner() : nullptr;
+	if (previous && previous->is_visible_in_tree() && focus_owner && is_ancestor_of(focus_owner)) {
+		previous->grab_focus(true);
+	}
+}
+
 void DatasetEditor::edit(const Ref<Resource> &p_resource) {
 	if (p_resource.is_null()) {
 		return;
+	}
+	const Viewport *viewport = is_inside_tree() ? get_viewport() : nullptr;
+	const Control *focus_owner = viewport ? viewport->gui_get_focus_owner() : nullptr;
+	if (focus_owner && !is_ancestor_of(focus_owner)) {
+		// After this frame's deferred updates (the table is rendered deferred) and the dock is shown.
+		const Callable restore_focus = callable_mp(this, &DatasetEditor::_restore_focus).bind(focus_owner->get_instance_id());
+		if (!get_tree()->is_connected(SNAME("process_frame"), restore_focus)) {
+			get_tree()->connect(SNAME("process_frame"), restore_focus, CONNECT_ONE_SHOT);
+		}
 	}
 	int index = -1;
 	for (uint32_t idx = 0; idx < open_files.size(); idx++) {

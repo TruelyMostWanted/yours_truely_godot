@@ -32,13 +32,10 @@
 
 #include "editor/inspector/data_file_inspector_plugin.h"
 
-// The inspector view of an INI file: sections and keys in the summary, a tree of sections (type "Section",
-// keys without a section under "(no section)") with their typed keys, Open in INI Dock (first) and the shared
-// Open in Dataset Dock (sections as rows).
+// The inspector view of an INI file: sections and keys in the summary, the tree of INITreeAdapter (keys before the
+// first section at the top, sections and numbered sections as containers). The INI dock opens with the file.
 class INIInspectorView : public DataFileInspectorView {
 	GDCLASS(INIInspectorView, DataFileInspectorView);
-
-	void _open_in_ini_dock();
 
 public:
 	// "N sections, M keys" of INI data (section -> key -> value).

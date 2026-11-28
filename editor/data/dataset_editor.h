@@ -213,6 +213,7 @@ private:
 	void _resource_changed();
 	void _queue_update();
 	void _json_text_check();
+	void _restore_focus(ObjectID p_focus_owner);
 	void _update();
 	void _render();
 	void _validate();

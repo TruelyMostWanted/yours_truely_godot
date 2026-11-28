@@ -728,9 +728,6 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	_initial_set("docks/scene_tree/hide_filtered_out_parents", true);
 	_initial_set("docks/scene_tree/accessibility_warnings", false);
 
-	// Truely (#424): the INI dock also opens when an INI file is opened, not only from the inspector.
-	_initial_set("docks/ini_editor/open_on_double_click", false);
-
 	// FileSystem
 	EDITOR_SETTING(Variant::INT, PROPERTY_HINT_RANGE, "docks/filesystem/thumbnail_size", 64, "32,224,16")
 	_initial_set("docks/filesystem/always_show_folders", true);

@@ -99,7 +99,6 @@ class INIEditor : public EditorDock {
 	void _save();
 	void _resource_saved(Object *p_resource);
 	void _tree_gui_input(const Ref<InputEvent> &p_event, bool p_sections);
-	void _inspector_object_changed();
 	void _file_removed(const String &p_file);
 
 protected:
@@ -107,6 +106,8 @@ protected:
 
 public:
 	static INIEditor *get_singleton() { return singleton; }
+	// Opened with the file (double-click, edit_resource()): an INI resource with a recognized path (.ini, .cfg).
+	static bool can_edit(const Object *p_object);
 
 	void edit(const Ref<INI> &p_ini);
 
@@ -123,6 +124,8 @@ public:
 	virtual String get_plugin_name() const override { return "INIEditor"; }
 	virtual void edit(Object *p_object) override;
 	virtual bool handles(Object *p_object) const override;
+	// The dock stays open while other objects are edited; it closes with its close button.
+	virtual bool can_auto_hide() const override { return false; }
 	virtual void make_visible(bool p_visible) override;
 
 	INIEditorPlugin();
