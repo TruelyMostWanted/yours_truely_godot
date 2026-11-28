@@ -38,6 +38,8 @@
 #include "core/object/class_db.h"
 
 #ifdef TOOLS_ENABLED
+#include "editor/database_editor.h"
+#include "editor/database_table_dialog.h"
 #include "editor/plugins/editor_plugin.h"
 #include "editor/sqlite_editor_plugin.h"
 #endif
@@ -48,6 +50,9 @@ static Ref<ResourceFormatSaverSQLite> resource_saver_sqlite;
 void initialize_sqlite_module(ModuleInitializationLevel p_level) {
 #ifdef TOOLS_ENABLED
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
+		// Internal: no class reference, no scripting API; ClassDB knows their signals (the dialog connects to its own "confirmed").
+		GDREGISTER_INTERNAL_CLASS(DatabaseEditor);
+		GDREGISTER_INTERNAL_CLASS(DatabaseTableDialog);
 		EditorPlugins::add_by_type<SQLiteEditorPlugin>();
 	}
 #endif
