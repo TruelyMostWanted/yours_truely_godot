@@ -45,7 +45,8 @@ class DataSchema;
 // formatting; any change of `data` drops the kept text.
 // Responsibility (#421, #434): the text document only — parse with kept text, errors with line/column, options,
 // load/save, validate, extensions. No data model shared by the formats: each class types `data` and has its own
-// editing API, inspector and dock. New virtuals here only for this lifecycle (truely/ARCHITECTURE.md 2.7).
+// editing API and inspector; docks by use (INI dock, Localization Table, the shared Dataset dock). New virtuals
+// here only for this lifecycle (truely/ARCHITECTURE.md 2.7).
 class TextDataFormat : public Resource {
 	GDCLASS(TextDataFormat, Resource);
 
@@ -68,7 +69,7 @@ protected:
 	// Type `data` must have (Variant::NIL = any).
 	virtual Variant::Type _get_data_type() const { return Variant::NIL; }
 	virtual void _get_extensions(List<String> *r_extensions) const {}
-	// Options for files with the extension of `p_path` when `options` is not set (CSV: a tab for `.tsv`), or null.
+	// Options for files with the extension of `p_path` when `options` is not set (for example a tab for `.tsv`), or null.
 	virtual Ref<SerializerOptions> _get_path_options(const String &p_path) const { return Ref<SerializerOptions>(); }
 	// Called after `data` was replaced (parse(), set_data(), clear()), for caches of subclasses.
 	virtual void _data_replaced() {}
