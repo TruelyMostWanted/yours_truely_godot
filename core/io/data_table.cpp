@@ -109,6 +109,18 @@ static void _data_table_remove_absent(LocalVector<int32_t> &r_rows, int p_at, in
 	r_rows.resize(r_rows.size() - removed);
 }
 
+// DataField.coerce(), and any data value as text in a String column.
+static bool _data_table_convert(Variant::Type p_type, const Variant &p_value, Variant &r_value) {
+	if (DataField::coerce(p_type, p_value, r_value)) {
+		return true;
+	}
+	if (p_type == Variant::STRING && DataField::is_data_type(p_value.get_type())) {
+		r_value = DataField::value_to_text(p_value);
+		return true;
+	}
+	return false;
+}
+
 // Orders values of one type by `<`, other values by type; used by sort_rows().
 static bool _data_table_less(const Variant &p_a, const Variant &p_b) {
 	Variant result;
@@ -368,7 +380,7 @@ void DataTable::_restore_cells(int p_column, const ColumnCells &p_cells, DataVal
 	// From the last row: a restored cell is then the last absent row of the column.
 	for (int i = (int)p_cells.rows.size() - 1; i >= 0; i--) {
 		Variant typed;
-		if (DataField::coerce(column_type, p_cells.values[i], typed)) {
+		if (_data_table_convert(column_type, p_cells.values[i], typed)) {
 			_set_cell(p_cells.rows[i], p_column, typed);
 		} else {
 			r_validation->add_issue(DataValidation::ISSUE_KIND_TYPE_MISMATCH, vformat("The value %s does not convert to %s.", DataField::value_to_text(p_cells.values[i]), Variant::get_type_name(column_type)), p_cells.name, String(), p_cells.rows[i], p_column);
@@ -536,7 +548,7 @@ void DataTable::_write_row(int p_row, const Dictionary &p_values, bool p_erase_m
 		Variant typed;
 		if (value != nullptr) {
 			matched++;
-			if (DataField::coerce(columns[column].type, *value, typed)) {
+			if (_data_table_convert(columns[column].type, *value, typed)) {
 				_set_cell(p_row, column, typed);
 				continue;
 			}
@@ -605,7 +617,7 @@ void DataTable::set_cell(int p_row, int p_column, const Variant &p_value) {
 	ERR_FAIL_INDEX(p_row, get_row_count());
 	ERR_FAIL_INDEX(p_column, get_column_count());
 	Variant typed;
-	ERR_FAIL_COND_MSG(!DataField::coerce(columns[p_column].type, p_value, typed), vformat("The value %s does not convert to the type %s of column \"%s\".", DataField::value_to_text(p_value), Variant::get_type_name(columns[p_column].type), get_column_name(p_column)));
+	ERR_FAIL_COND_MSG(!_data_table_convert(columns[p_column].type, p_value, typed), vformat("The value %s does not convert to the type %s of column \"%s\".", DataField::value_to_text(p_value), Variant::get_type_name(columns[p_column].type), get_column_name(p_column)));
 	_set_cell(p_row, p_column, typed);
 	emit_signal(SNAME("cells_changed"), p_row, p_column, 1, 1);
 	emit_changed();
@@ -637,7 +649,7 @@ PackedInt32Array DataTable::find_rows(int p_column, const Variant &p_value) cons
 	PackedInt32Array result;
 	ERR_FAIL_INDEX_V(p_column, get_column_count(), result);
 	Variant typed;
-	if (!DataField::coerce(columns[p_column].type, p_value, typed)) {
+	if (!_data_table_convert(columns[p_column].type, p_value, typed)) {
 		return result;
 	}
 	const int rows = get_row_count();
@@ -875,7 +887,7 @@ void DataTable::_set_data(const Array &p_data) {
 				continue;
 			}
 			Variant typed;
-			if (DataField::coerce(columns[column].type, values[row], typed)) {
+			if (_data_table_convert(columns[column].type, values[row], typed)) {
 				_set_cell(row, column, typed);
 			}
 		}

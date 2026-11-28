@@ -4,7 +4,7 @@
 		A table of typed columns described by a [DataSchema], stored column by column.
 	</brief_description>
 	<description>
-		A [DataTable] holds rows and columns of data, for example the items of a game, the rows of a [CSV] file or the records of a JSON array. Each column is a [DataField] of [member schema]: its name, its [enum Variant.Type] and its rules. Cells are converted to the column type when they are set: text and numbers convert, as [code]"42"[/code] or [code]42.0[/code] in an [int] column.
+		A [DataTable] holds rows and columns of data, for example the items of a game, the rows of a [CSV] file or the records of a JSON array. Each column is a [DataField] of [member schema]: its name, its [enum Variant.Type] and its rules. Cells are converted to the column type when they are set: text and numbers convert, as [code]"42"[/code] or [code]42.0[/code] in an [int] column, and any value becomes text in a [String] column.
 		Cells are stored per column (Structure of Arrays): an [int], [float], [String] or [bool] column is one packed array, any other type (and a column without a fixed type, [constant TYPE_NIL]) is an [Array]. [method get_column] returns that array without copying the cells, for fast reads in games.
 		A row does not need to have every cell. A cell that is not set is absent: [method has_cell] returns [code]false[/code], [method get_cell] returns [code]null[/code], and [method get_row] and [method to_records] leave its key out. So records with optional keys keep their shape in a round trip, and [code]null[/code] stays a value of its own in a column without a fixed type.
 		[codeblocks]
@@ -260,7 +260,7 @@
 			<param index="1" name="column" type="int" />
 			<param index="2" name="value" type="Variant" />
 			<description>
-				Sets the cell to [param value], converted to the column type (for example the text [code]"42"[/code] or the float [code]42.0[/code] in an [int] column). Prints an error and keeps the cell if the value does not convert. To make a cell absent, use [method erase_cell].
+				Sets the cell to [param value], converted to the column type (for example the text [code]"42"[/code] or the float [code]42.0[/code] in an [int] column; any value becomes text in a [String] column). Prints an error and keeps the cell if the value does not convert. To make a cell absent, use [method erase_cell].
 			</description>
 		</method>
 		<method name="set_column_type">
