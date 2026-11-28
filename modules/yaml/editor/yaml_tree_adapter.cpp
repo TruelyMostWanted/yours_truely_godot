@@ -42,6 +42,12 @@ int YAMLTreeAdapter::_get_document_count() const {
 }
 
 bool YAMLTreeAdapter::_get_yaml_path(const PackedStringArray &p_path, String &r_path) const {
+	// YAML paths skip empty segments, so the key "" would be the whole document: such paths take the base edit.
+	for (const String &segment : p_path) {
+		if (segment.is_empty()) {
+			return false;
+		}
+	}
 	if (_get_document_count() <= 1) {
 		r_path = join_path(p_path);
 		return true;

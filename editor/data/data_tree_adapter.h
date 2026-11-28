@@ -33,6 +33,7 @@
 #include "core/io/resource.h"
 #include "core/object/ref_counted.h"
 #include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
 #include "core/templates/local_vector.h"
 
 class CSV;
@@ -81,6 +82,8 @@ private:
 	static inline Factory factories[MAX_FACTORIES];
 	static inline int factory_count = 0;
 
+	// The kind of p_node; the root (p_root) is a container whenever it is a Dictionary or an Array.
+	NodeKind _get_kind_at(const Variant &p_node, bool p_root) const;
 	void _find_in(const Variant &p_node, const String &p_query, int p_max, PackedStringArray &r_path, Vector<PackedStringArray> &r_paths) const;
 
 protected:
@@ -91,12 +94,8 @@ protected:
 	static PackedInt32Array make_types(std::initializer_list<Variant::Type> p_types);
 	// The key of p_dictionary whose text is p_segment (keys need not be Strings, as in YAML).
 	static bool find_key(const Dictionary &p_dictionary, const String &p_segment, Variant &r_key);
-	// True if the keys of p_dictionary are exactly "0" .. "n-1" (n > 0): a list in INI and path CSV.
-	static bool is_list(const Dictionary &p_dictionary);
 	// Gives the values of a list (is_list()) the keys "0" .. "n-1" again, in p_values order.
 	static void renumber(Dictionary p_list, const Vector<Variant> &p_values);
-	// The values of a list (is_list()) in index order.
-	static Vector<Variant> get_list_values(const Dictionary &p_list);
 	// p_value as one short line (at most MAX_VALUE_LENGTH characters).
 	static String short_text(const Variant &p_value);
 	static PackedStringArray parent_of(const PackedStringArray &p_path);
@@ -121,6 +120,11 @@ protected:
 	virtual void _commit() {}
 
 public:
+	// True if the keys of p_dictionary are exactly "0" .. "n-1" (n > 0): a list in INI and path CSV.
+	static bool is_list(const Dictionary &p_dictionary);
+	// The values of a list (is_list()) in index order.
+	static Vector<Variant> get_list_values(const Dictionary &p_list);
+
 	// Registers the adapter of a format class (and its subclasses). For modules; the core formats are built in.
 	static void register_adapter(const char *p_class_name, CreateFunc p_create);
 	// The adapter of p_resource, null if the format has no tree (a CSV without the header Path,Key,Value).
@@ -177,15 +181,17 @@ public:
 };
 
 // The base of formats whose data is a flat list of (container name, key, value): INI sections and path CSV
-// rows. Container names are paths ("MyItems/0"), so the adapter builds the tree once per change of the data
-// (event: the resource's `changed` signal). A container whose children are "0" .. "n-1" is a list; no count is
-// stored. A value and a container with the same name: the container is shown.
+// rows. A container name is split at "/" into segments ("MyItems/0", "res://a.gd" is "res:", "", "a.gd") and
+// written back joined with "/", verbatim: "~" and "/" are escaped only in path text (join_path()), never in a
+// stored name. The adapter builds the tree once per change of the data (event: the resource's `changed` signal).
+// A container whose children are "0" .. "n-1" is a list; no count is stored. A value and a container with the same
+// name: the container is shown.
 class FlatDataTreeAdapter : public DataTreeAdapter {
 	GDCLASS(FlatDataTreeAdapter, DataTreeAdapter);
 
 	mutable bool dirty = true;
 	mutable Dictionary root;
-	mutable HashMap<const void *, String> container_names; // Container -> its name in the file.
+	mutable HashSet<const void *> containers; // Dictionary::id() of the containers of `root`.
 
 	void _resource_changed() { dirty = true; }
 	void _build() const;
@@ -194,8 +200,8 @@ class FlatDataTreeAdapter : public DataTreeAdapter {
 protected:
 	// For _build_flat(): adds p_value under p_key in the container named p_container_name.
 	void _add_flat(const String &p_container_name, const String &p_key, const Variant &p_value) const;
-	// The name of the container at p_path in the file (p_path is a container).
-	String _get_container_name(const PackedStringArray &p_path) const;
+	// The name in the file of the container at p_path: its segments joined with "/".
+	static String _get_container_name(const PackedStringArray &p_path);
 	// True if the tree was built, so the given node is a container of it.
 	bool _is_container(const Variant &p_node) const;
 
@@ -206,11 +212,11 @@ protected:
 
 	virtual Variant _get_root() const override;
 	virtual NodeKind _get_kind(const Variant &p_node) const override;
-	virtual Variant _new_container(NodeKind p_kind) override;
 	virtual void _commit() override;
 
 public:
 	virtual void setup(const Ref<Resource> &p_resource) override;
+	virtual Error add_container(const PackedStringArray &p_path, const String &p_key, NodeKind p_kind) override;
 };
 
 // INI: sections are containers, their keys values. "[MyItems/0]" is item 0 of the list MyItems; the keys before
@@ -227,6 +233,7 @@ public:
 	// "[This/Is/A] Test".
 	virtual String format_path(const PackedStringArray &p_path) const override;
 	virtual Error set_value(const PackedStringArray &p_path, const Variant &p_value) override;
+	virtual Error add_value(const PackedStringArray &p_path, const String &p_key, const Variant &p_value) override;
 	virtual Error remove(const PackedStringArray &p_path) override;
 };
 
@@ -251,13 +258,14 @@ public:
 	virtual String format_path(const PackedStringArray &p_path) const override;
 	virtual PackedInt32Array get_value_types(const PackedStringArray &p_path) const override;
 	virtual Error set_value(const PackedStringArray &p_path, const Variant &p_value) override;
+	virtual Error add_value(const PackedStringArray &p_path, const String &p_key, const Variant &p_value) override;
 	virtual Error remove(const PackedStringArray &p_path) override;
 };
 
 // XML: the root element is the only top-level node. Attributes ("@name") are values, so is an element with only
-// text. An element whose children (two or more) all share one tag and that has no attributes is a list (segments
-// "0" .. "n-1"); otherwise children are named by tag, repeated tags as "Tag[1]", "Tag[2]". The text of an
-// element with child elements is the value "#text". Values are text.
+// text. A list (segments "0" .. "n-1") is an element without attributes and text whose child elements all share
+// one tag (is_list_element()); otherwise children are named by tag, repeated tags as "Tag[1]", "Tag[2]". The text
+// of an element with child elements is the value "#text". Values are text.
 class XMLTreeAdapter : public DataTreeAdapter {
 	GDCLASS(XMLTreeAdapter, DataTreeAdapter);
 
@@ -268,7 +276,6 @@ class XMLTreeAdapter : public DataTreeAdapter {
 	};
 
 	static void _collect(const Variant &p_node, LocalVector<Child> &r_children);
-	static bool _is_list(const Dictionary &p_element);
 	static String _get_item_tag(const Dictionary &p_element);
 	bool _locate(const PackedStringArray &p_path, Variant &r_parent, Child &r_child) const;
 	Ref<XMLElement> _view(const Dictionary &p_element) const;
@@ -283,6 +290,12 @@ protected:
 	virtual void _decorate(Entry &r_entry, int p_depth) const override;
 
 public:
+	// True if p_element is a list: no attributes, no text, and its child elements all share one tag, with two or
+	// more of them, or with one whose tag the element's tag is the plural of (`<units><unit/></units>`:
+	// tag + "s", tag + "es", "y" -> "ies"; case-insensitive). So a list keeps its paths ("units/0") down to one item,
+	// and `<A><Test>42</Test></A>` stays a named element.
+	static bool is_list_element(const Dictionary &p_element);
+
 	// "This/Is/A/@Test".
 	virtual String format_path(const PackedStringArray &p_path) const override;
 	virtual PackedInt32Array get_value_types(const PackedStringArray &p_path) const override;

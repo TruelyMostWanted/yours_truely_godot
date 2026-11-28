@@ -801,6 +801,23 @@ TEST_CASE("[YAML][DataTreeAdapter] Paths and edits through the YAML API") {
 	CHECK(adapter->remove(PackedStringArray({ "2" })) == OK);
 	CHECK(yaml->get_document_count() == 2);
 	CHECK(adapter->move(PackedStringArray({ "1" }), 0) == ERR_UNAVAILABLE);
+
+	// A top-level list of scalars lists its items.
+	REQUIRE(yaml->parse("- a\n- b\n") == OK);
+	CHECK(adapter->get_kind(PackedStringArray()) == DataTreeAdapter::NODE_KIND_INDEXED);
+	CHECK(adapter->get_child_count(PackedStringArray()) == 2);
+
+	// The key "" is a key, not the whole document (YAML paths skip empty segments).
+	Dictionary data;
+	data[""] = 1;
+	data["b"] = 2;
+	yaml->set_data(data);
+	CHECK(adapter->set_value(PackedStringArray({ "" }), 5) == OK);
+	CHECK(int(Dictionary(yaml->get_data())[""]) == 5);
+	CHECK(int(Dictionary(yaml->get_data())["b"]) == 2);
+	CHECK(adapter->remove(PackedStringArray({ "" })) == OK);
+	CHECK_FALSE(Dictionary(yaml->get_data()).has(""));
+	CHECK(int(Dictionary(yaml->get_data())["b"]) == 2);
 }
 #endif // TOOLS_ENABLED
 

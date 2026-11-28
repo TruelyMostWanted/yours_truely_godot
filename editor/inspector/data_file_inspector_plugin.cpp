@@ -195,7 +195,13 @@ void DataFileInspectorView::_update_tree() {
 	TreeItem *root = tree->create_item();
 	root->set_metadata(0, PackedStringArray());
 	const String query = search->get_text().strip_edges();
-	if (query.is_empty()) {
+	DataTreeAdapter::Entry root_entry;
+	if (adapter->get_entry(PackedStringArray(), root_entry) && root_entry.kind == DataTreeAdapter::NODE_KIND_VALUE) {
+		// A scalar file (`42`, `"text"`): one row.
+		root_entry.key = TTR("(value)");
+		_create_item(root, root_entry, 0, false);
+		more_label->hide();
+	} else if (query.is_empty()) {
 		_fill(root, 0);
 		more_label->hide();
 	} else {

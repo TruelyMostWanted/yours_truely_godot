@@ -38,7 +38,7 @@
 #include "core/object/callable_mp.h"
 
 // The index of p_segment in an Array of p_size items, -1 if it is not one.
-static int _index_of(const String &p_segment, int p_size) {
+static int _data_tree_adapter_index_of(const String &p_segment, int p_size) {
 	if (!p_segment.is_valid_int()) {
 		return -1;
 	}
@@ -144,7 +144,7 @@ bool DataTreeAdapter::is_list(const Dictionary &p_dictionary) {
 		return false;
 	}
 	for (const KeyValue<Variant, Variant> &kv : p_dictionary) {
-		if (kv.key.get_type() != Variant::STRING || _index_of(kv.key, size) < 0 || itos(String(kv.key).to_int()) != String(kv.key)) {
+		if (kv.key.get_type() != Variant::STRING || _data_tree_adapter_index_of(kv.key, size) < 0 || itos(String(kv.key).to_int()) != String(kv.key)) {
 			return false;
 		}
 	}
@@ -296,7 +296,7 @@ bool DataTreeAdapter::_get_child(const Variant &p_node, const String &p_segment,
 	}
 	if (p_node.get_type() == Variant::ARRAY) {
 		const Array array = p_node;
-		const int index = _index_of(p_segment, array.size());
+		const int index = _data_tree_adapter_index_of(p_segment, array.size());
 		if (index < 0) {
 			return false;
 		}
@@ -306,18 +306,26 @@ bool DataTreeAdapter::_get_child(const Variant &p_node, const String &p_segment,
 	return false;
 }
 
+DataTreeAdapter::NodeKind DataTreeAdapter::_get_kind_at(const Variant &p_node, bool p_root) const {
+	const NodeKind kind = _get_kind(p_node);
+	// A root Array of scalars still lists its items (one value would hide the whole file).
+	return p_root && kind == NODE_KIND_VALUE && p_node.get_type() == Variant::ARRAY ? NODE_KIND_INDEXED : kind;
+}
+
 Variant DataTreeAdapter::_new_container(NodeKind p_kind) {
 	return p_kind == NODE_KIND_INDEXED ? Variant(Array()) : Variant(Dictionary());
 }
 
 bool DataTreeAdapter::_resolve(const PackedStringArray &p_path, Variant &r_node) const {
 	Variant node = _get_root();
+	bool root = true;
 	for (const String &segment : p_path) {
 		Variant child;
-		if (_get_kind(node) == NODE_KIND_VALUE || !_get_child(node, segment, child)) {
+		if (_get_kind_at(node, root) == NODE_KIND_VALUE || !_get_child(node, segment, child)) {
 			return false;
 		}
 		node = child;
+		root = false;
 	}
 	r_node = node;
 	return true;
@@ -329,17 +337,21 @@ bool DataTreeAdapter::get_entry(const PackedStringArray &p_path, Entry &r_entry)
 		return false;
 	}
 	r_entry = _make_entry(p_path.is_empty() ? String() : p_path[p_path.size() - 1], node, p_path.size());
+	if (p_path.is_empty() && r_entry.kind != _get_kind_at(node, true)) {
+		r_entry.kind = NODE_KIND_INDEXED;
+		r_entry.child_count = _get_child_count(node);
+	}
 	return true;
 }
 
 DataTreeAdapter::NodeKind DataTreeAdapter::get_kind(const PackedStringArray &p_path) const {
 	Variant node;
-	return _resolve(p_path, node) ? _get_kind(node) : NODE_KIND_VALUE;
+	return _resolve(p_path, node) ? _get_kind_at(node, p_path.is_empty()) : NODE_KIND_VALUE;
 }
 
 int DataTreeAdapter::get_child_count(const PackedStringArray &p_path) const {
 	Variant node;
-	if (!_resolve(p_path, node) || _get_kind(node) == NODE_KIND_VALUE) {
+	if (!_resolve(p_path, node) || _get_kind_at(node, p_path.is_empty()) == NODE_KIND_VALUE) {
 		return 0;
 	}
 	return _get_child_count(node);
@@ -347,7 +359,7 @@ int DataTreeAdapter::get_child_count(const PackedStringArray &p_path) const {
 
 void DataTreeAdapter::get_children(const PackedStringArray &p_path, int p_from, int p_count, LocalVector<Entry> &r_entries) const {
 	Variant node;
-	if (!_resolve(p_path, node) || _get_kind(node) == NODE_KIND_VALUE) {
+	if (!_resolve(p_path, node) || _get_kind_at(node, p_path.is_empty()) == NODE_KIND_VALUE) {
 		return;
 	}
 	const int total = _get_child_count(node);
@@ -385,7 +397,7 @@ void DataTreeAdapter::_find_in(const Variant &p_node, const String &p_query, int
 Vector<PackedStringArray> DataTreeAdapter::find(const String &p_query, int p_max) const {
 	Vector<PackedStringArray> paths;
 	const Variant root = _get_root();
-	if (!p_query.is_empty() && p_max > 0 && _get_kind(root) != NODE_KIND_VALUE) {
+	if (!p_query.is_empty() && p_max > 0 && _get_kind_at(root, true) != NODE_KIND_VALUE) {
 		PackedStringArray path;
 		_find_in(root, p_query, p_max, path, paths);
 	}
@@ -411,7 +423,7 @@ Error DataTreeAdapter::set_value(const PackedStringArray &p_path, const Variant 
 		dictionary[key] = p_value;
 	} else if (parent.get_type() == Variant::ARRAY) {
 		Array array = parent;
-		const int index = _index_of(segment, array.size());
+		const int index = _data_tree_adapter_index_of(segment, array.size());
 		if (index < 0) {
 			return ERR_DOES_NOT_EXIST;
 		}
@@ -508,7 +520,7 @@ Error DataTreeAdapter::remove(const PackedStringArray &p_path) {
 		}
 	} else if (parent.get_type() == Variant::ARRAY) {
 		Array array = parent;
-		const int index = _index_of(segment, array.size());
+		const int index = _data_tree_adapter_index_of(segment, array.size());
 		if (index < 0) {
 			return ERR_DOES_NOT_EXIST;
 		}
@@ -550,7 +562,7 @@ Error DataTreeAdapter::move(const PackedStringArray &p_path, int p_index) {
 		}
 	} else if (parent.get_type() == Variant::ARRAY) {
 		Array array = parent;
-		const int index = _index_of(segment, array.size());
+		const int index = _data_tree_adapter_index_of(segment, array.size());
 		if (index < 0) {
 			return ERR_DOES_NOT_EXIST;
 		}
@@ -600,30 +612,27 @@ void FlatDataTreeAdapter::_build() const {
 	}
 	dirty = false;
 	root = Dictionary();
-	container_names.clear();
-	container_names.insert(root.id(), String());
+	containers.clear();
+	containers.insert(root.id());
 	_build_flat();
 }
 
 void FlatDataTreeAdapter::_add_flat(const String &p_container_name, const String &p_key, const Variant &p_value) const {
 	Dictionary container = root;
-	String prefix;
-	for (const String &part : p_container_name.split("/", false)) {
-		prefix += (prefix.is_empty() ? "" : "/") + part;
-		const String segment = unescape_segment(part);
-		const Variant child = container.get(segment, Variant());
-		if (_is_container(child)) {
-			container = child;
-			continue;
-		}
-		// A container wins over a value of the same name.
-		Dictionary created;
-		container_names.insert(created.id(), prefix);
-		container[segment] = created;
-		container = created;
-	}
 	if (!p_container_name.is_empty()) {
-		container_names[container.id()] = p_container_name;
+		// Verbatim segments, so _get_container_name() gives the name back unchanged ("res://a.gd", "a~b").
+		for (const String &segment : p_container_name.split("/")) {
+			const Variant child = container.get(segment, Variant());
+			if (_is_container(child)) {
+				container = child;
+				continue;
+			}
+			// A container wins over a value of the same name.
+			Dictionary created;
+			containers.insert(created.id());
+			container[segment] = created;
+			container = created;
+		}
 	}
 	if (!p_key.is_empty() && !_is_container(container.get(p_key, Variant()))) {
 		container[p_key] = p_value;
@@ -631,16 +640,11 @@ void FlatDataTreeAdapter::_add_flat(const String &p_container_name, const String
 }
 
 bool FlatDataTreeAdapter::_is_container(const Variant &p_node) const {
-	return p_node.get_type() == Variant::DICTIONARY && container_names.has(Dictionary(p_node).id());
+	return p_node.get_type() == Variant::DICTIONARY && containers.has(Dictionary(p_node).id());
 }
 
-String FlatDataTreeAdapter::_get_container_name(const PackedStringArray &p_path) const {
-	Variant node;
-	if (p_path.is_empty() || !_resolve(p_path, node) || !_is_container(node)) {
-		return String();
-	}
-	const String *name = container_names.getptr(Dictionary(node).id());
-	return name && !name->is_empty() ? *name : join_path(p_path);
+String FlatDataTreeAdapter::_get_container_name(const PackedStringArray &p_path) {
+	return String("/").join(p_path);
 }
 
 Variant FlatDataTreeAdapter::_get_root() const {
@@ -655,13 +659,20 @@ DataTreeAdapter::NodeKind FlatDataTreeAdapter::_get_kind(const Variant &p_node) 
 	return is_list(p_node) ? NODE_KIND_INDEXED : NODE_KIND_NAMED;
 }
 
-Variant FlatDataTreeAdapter::_new_container(NodeKind p_kind) {
-	// A list is a container with the keys "0" .. "n-1"; until its first item it is a named one.
-	// Build first: a rebuild after this call (pending since the last edit) would forget the new container.
+Error FlatDataTreeAdapter::add_container(const PackedStringArray &p_path, const String &p_key, NodeKind p_kind) {
+	if (p_kind == NODE_KIND_VALUE) {
+		return ERR_INVALID_PARAMETER;
+	}
+	// A list is a container with the keys "0" .. "n-1"; until its first item it is a named one. Built first, so a
+	// rebuild pending since the last edit does not forget the new container; forgotten again if it is not added.
 	_build();
 	Dictionary created;
-	container_names.insert(created.id(), String());
-	return created;
+	containers.insert(created.id());
+	const Error err = DataTreeAdapter::add_value(p_path, p_key, created);
+	if (err != OK) {
+		containers.erase(created.id());
+	}
+	return err;
 }
 
 void FlatDataTreeAdapter::_flatten(const Dictionary &p_container, const PackedStringArray &p_path, Vector<String> &r_names, Vector<Dictionary> &r_values) const {
@@ -676,7 +687,7 @@ void FlatDataTreeAdapter::_flatten(const Dictionary &p_container, const PackedSt
 	}
 	// An empty container is written once with no values; the top level only if it has values.
 	if (!values.is_empty() || (!has_containers && !p_path.is_empty())) {
-		r_names.push_back(join_path(p_path));
+		r_names.push_back(_get_container_name(p_path));
 		r_values.push_back(values);
 	}
 	for (const KeyValue<Variant, Variant> &kv : p_container) {
@@ -765,6 +776,25 @@ Error INITreeAdapter::set_value(const PackedStringArray &p_path, const Variant &
 	return OK;
 }
 
+Error INITreeAdapter::add_value(const PackedStringArray &p_path, const String &p_key, const Variant &p_value) {
+	Variant node;
+	if (!_resolve(p_path, node)) {
+		return ERR_DOES_NOT_EXIST;
+	}
+	if (p_value.get_type() == Variant::NIL) {
+		return ERR_INVALID_PARAMETER; // INI erases a key set to null.
+	}
+	if (p_key.is_empty() || !_is_container(node) || _get_kind(node) != NODE_KIND_NAMED) {
+		return DataTreeAdapter::add_value(p_path, p_key, p_value); // A list item, or an error.
+	}
+	if (Dictionary(node).has(p_key)) {
+		return ERR_ALREADY_EXISTS;
+	}
+	Ref<INI> ini = resource;
+	ini->set_value(_get_container_name(p_path), p_key, p_value);
+	return OK;
+}
+
 Error INITreeAdapter::remove(const PackedStringArray &p_path) {
 	Variant node;
 	Variant parent;
@@ -803,7 +833,10 @@ void CSVTreeAdapter::_build_flat() const {
 		const String key = cells.size() > 1 ? cells[1] : String();
 		_add_flat(container_name, key, cells.size() > 2 ? cells[2] : String());
 		if (!key.is_empty()) {
-			PackedStringArray path = split_path(container_name);
+			PackedStringArray path;
+			if (!container_name.is_empty()) {
+				path = container_name.split("/");
+			}
 			path.push_back(key);
 			value_rows[join_path(path)] = i;
 		}
@@ -855,6 +888,22 @@ Error CSVTreeAdapter::set_value(const PackedStringArray &p_path, const Variant &
 	return OK;
 }
 
+Error CSVTreeAdapter::add_value(const PackedStringArray &p_path, const String &p_key, const Variant &p_value) {
+	Variant node;
+	if (!_resolve(p_path, node)) {
+		return ERR_DOES_NOT_EXIST;
+	}
+	if (p_key.is_empty() || !_is_container(node) || _get_kind(node) != NODE_KIND_NAMED) {
+		return DataTreeAdapter::add_value(p_path, p_key, p_value); // A list item, or an error.
+	}
+	if (Dictionary(node).has(p_key)) {
+		return ERR_ALREADY_EXISTS;
+	}
+	Ref<CSV> csv = resource;
+	csv->append_row(PackedStringArray({ _get_container_name(p_path), p_key, String(p_value) }));
+	return OK;
+}
+
 Error CSVTreeAdapter::remove(const PackedStringArray &p_path) {
 	const int row = _get_row(p_path);
 	Variant parent;
@@ -878,7 +927,7 @@ Variant XMLTreeAdapter::_get_root() const {
 	return document;
 }
 
-bool XMLTreeAdapter::_is_list(const Dictionary &p_element) {
+bool XMLTreeAdapter::is_list_element(const Dictionary &p_element) {
 	if (!Dictionary(p_element.get(XML::KEY_ATTRIBUTES, Dictionary())).is_empty() || !String(p_element.get(XML::KEY_TEXT, String())).strip_edges().is_empty()) {
 		return false;
 	}
@@ -896,7 +945,13 @@ bool XMLTreeAdapter::_is_list(const Dictionary &p_element) {
 		tag = child_tag;
 		count++;
 	}
-	return count >= 2;
+	if (count != 1) {
+		return count >= 2;
+	}
+	// One child: a list if the element's tag is the plural of the child's tag.
+	const String parent = String(p_element.get(XML::KEY_NAME, String())).to_lower();
+	const String item = tag.to_lower();
+	return !item.is_empty() && (parent == item + "s" || parent == item + "es" || (item.ends_with("y") && parent == item.left(-1) + "ies"));
 }
 
 String XMLTreeAdapter::_get_item_tag(const Dictionary &p_element) {
@@ -922,7 +977,7 @@ void XMLTreeAdapter::_collect(const Variant &p_node, LocalVector<Child> &r_child
 	}
 	const Dictionary element = p_node;
 	const Array children = element.get(XML::KEY_CHILDREN, Array());
-	if (_is_list(element)) {
+	if (is_list_element(element)) {
 		int index = 0;
 		for (int i = 0; i < children.size(); i++) {
 			if (children[i].get_type() == Variant::DICTIONARY) {
@@ -964,7 +1019,7 @@ DataTreeAdapter::NodeKind XMLTreeAdapter::_get_kind(const Variant &p_node) const
 		return NODE_KIND_VALUE; // An attribute or "#text".
 	}
 	const Dictionary element = p_node;
-	if (_is_list(element)) {
+	if (is_list_element(element)) {
 		return NODE_KIND_INDEXED;
 	}
 	if (!Dictionary(element.get(XML::KEY_ATTRIBUTES, Dictionary())).is_empty()) {
@@ -1086,7 +1141,7 @@ Error XMLTreeAdapter::add_value(const PackedStringArray &p_path, const String &p
 	}
 	const Dictionary element = node;
 	const String text = p_value;
-	if (_is_list(element)) {
+	if (is_list_element(element)) {
 		// A new item copies the tag of its siblings.
 		Ref<XMLElement> item;
 		item.instantiate();
@@ -1132,7 +1187,7 @@ Error XMLTreeAdapter::add_container(const PackedStringArray &p_path, const Strin
 		return ERR_INVALID_PARAMETER;
 	}
 	const Dictionary element = node;
-	const String tag = _is_list(element) ? _get_item_tag(element) : p_key;
+	const String tag = is_list_element(element) ? _get_item_tag(element) : p_key;
 	if (tag.is_empty()) {
 		return ERR_INVALID_PARAMETER;
 	}

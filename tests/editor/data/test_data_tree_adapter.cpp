@@ -405,6 +405,104 @@ TEST_CASE("[DataTreeAdapter][CSV] Edits through the CSV API") {
 	}
 }
 
+TEST_CASE("[DataTreeAdapter][JSON] A root Array of scalars lists its items, a scalar root is one value") {
+	Ref<JSON> json;
+	json.instantiate();
+	REQUIRE(json->parse("[1, 2, 3]") == OK);
+	const Ref<Adapter> adapter = Adapter::create_for(json);
+	CHECK(adapter->get_kind(PackedStringArray()) == Adapter::NODE_KIND_INDEXED);
+	CHECK(adapter->get_child_count(PackedStringArray()) == 3);
+	CHECK(children_of(adapter, PackedStringArray()).size() == 3u);
+	Adapter::Entry entry;
+	REQUIRE(adapter->get_entry(PackedStringArray(), entry));
+	CHECK(entry.kind == Adapter::NODE_KIND_INDEXED);
+	CHECK(adapter->set_value(path_of({ "1" }), 5) == OK);
+	CHECK(int(Array(json->get_data())[1]) == 5);
+	CHECK(adapter->find("5", 10).size() == 1u);
+
+	REQUIRE(json->parse("42") == OK);
+	CHECK(adapter->get_kind(PackedStringArray()) == Adapter::NODE_KIND_VALUE);
+	REQUIRE(adapter->get_entry(PackedStringArray(), entry));
+	CHECK(entry.value.begins_with("42")); // JSON numbers are floats.
+	CHECK(adapter->get_child_count(PackedStringArray()) == 0);
+}
+
+TEST_CASE("[DataTreeAdapter][INI] Section names stay verbatim on whole-tree writes") {
+	Ref<INI> ini;
+	ini.instantiate();
+	REQUIRE(ini->parse("[res://a.gd]\nline=1\n\n[a~b]\nx=1\n") == OK);
+	const Ref<Adapter> adapter = Adapter::create_for(ini);
+
+	// "/" splits a name into segments ("res:", "", "a.gd"); "~" is escaped only in the path text.
+	const PackedStringArray line = path_of({ "res:", "", "a.gd", "line" });
+	CHECK(int(adapter->get_value(line)) == 1);
+	CHECK(adapter->format_path(line) == "[res://a.gd] line");
+	CHECK(adapter->format_path(path_of({ "a~b" })) == "[a~b]");
+	CHECK(Adapter::join_path(path_of({ "a~b" })) == "a~0b");
+
+	CHECK(adapter->add_value(path_of({ "a~b" }), "y", 2) == OK);
+	CHECK(adapter->add_value(path_of({ "a~b" }), "y", 3) == ERR_ALREADY_EXISTS);
+	CHECK(adapter->add_container(PackedStringArray(), "new", Adapter::NODE_KIND_NAMED) == OK); // Writes every section.
+	CHECK(adapter->move(path_of({ "a~b", "y" }), 0) == OK);
+	CHECK(ini->has_section("res://a.gd"));
+	CHECK(ini->has_section("a~b"));
+	CHECK(int(ini->get_value("a~b", "y")) == 2);
+	CHECK(ini->has_section("new"));
+	CHECK_FALSE(ini->has_section("res:/a.gd"));
+	CHECK_FALSE(ini->has_section("a~0b"));
+
+	// A failed add_container() leaves no container behind.
+	CHECK(adapter->add_container(PackedStringArray(), "new", Adapter::NODE_KIND_NAMED) == ERR_ALREADY_EXISTS);
+	CHECK(adapter->set_value(path_of({ "a~b", "x" }), Dictionary()) == OK);
+	CHECK(adapter->get_kind(path_of({ "a~b", "x" })) == Adapter::NODE_KIND_VALUE);
+}
+
+TEST_CASE("[DataTreeAdapter][CSV] Paths stay verbatim on whole-tree writes") {
+	Ref<CSV> csv;
+	csv.instantiate();
+	csv->set_header(PackedStringArray({ "Path", "Key", "Value" }));
+	Array rows;
+	rows.push_back(PackedStringArray({ "res://a.gd", "line", "1" }));
+	rows.push_back(PackedStringArray({ "a~b", "x", "1" }));
+	csv->set_data(rows);
+	const Ref<Adapter> adapter = Adapter::create_for(csv);
+
+	CHECK(adapter->get_value(path_of({ "res:", "", "a.gd", "line" })) == Variant("1"));
+	CHECK(adapter->add_value(path_of({ "a~b" }), "y", 2) == OK);
+	CHECK(csv->get_row_count() == 3); // Appended.
+	CHECK(adapter->add_container(PackedStringArray(), "new", Adapter::NODE_KIND_NAMED) == OK);
+	bool found_res = false;
+	bool found_tilde = false;
+	for (int i = 0; i < csv->get_row_count(); i++) {
+		found_res = found_res || csv->get_cell(i, 0) == "res://a.gd";
+		found_tilde = found_tilde || csv->get_cell(i, 0) == "a~b";
+		CHECK(csv->get_cell(i, 0) != "a~0b");
+	}
+	CHECK(found_res);
+	CHECK(found_tilde);
+}
+
+TEST_CASE("[DataTreeAdapter][XML] A list keeps its paths down to one item") {
+	Ref<XML> xml;
+	xml.instantiate();
+	REQUIRE(xml->parse("<game><units><unit id=\"knight\"/></units><entries><entry/></entries><A><Test>42</Test></A><cfg><window/></cfg></game>") == OK);
+	const Ref<Adapter> adapter = Adapter::create_for(xml);
+
+	// One child is a list when the element's tag is its plural.
+	CHECK(adapter->get_kind(path_of({ "game", "units" })) == Adapter::NODE_KIND_INDEXED);
+	CHECK(adapter->get_value(path_of({ "game", "units", "0", "@id" })) == Variant("knight"));
+	CHECK(adapter->get_kind(path_of({ "game", "entries" })) == Adapter::NODE_KIND_INDEXED);
+	CHECK(adapter->get_kind(path_of({ "game", "A" })) == Adapter::NODE_KIND_NAMED);
+	CHECK(adapter->get_value(path_of({ "game", "A", "Test" })) == Variant("42"));
+	CHECK(adapter->get_kind(path_of({ "game", "cfg" })) == Adapter::NODE_KIND_NAMED);
+
+	// Adding and removing items keeps the paths.
+	CHECK(adapter->add_container(path_of({ "game", "units" }), String(), Adapter::NODE_KIND_NAMED) == OK);
+	CHECK(adapter->remove(path_of({ "game", "units", "0" })) == OK);
+	CHECK(adapter->get_kind(path_of({ "game", "units" })) == Adapter::NODE_KIND_INDEXED);
+	CHECK(adapter->get_child_count(path_of({ "game", "units" })) == 1);
+}
+
 TEST_CASE("[DataTreeAdapter] Big data: the first page stays cheap") {
 	// Deep JSON: 20 000 objects, each nested 10 levels deep.
 	Array objects;
