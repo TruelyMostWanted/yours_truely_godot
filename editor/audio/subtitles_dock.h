@@ -137,7 +137,7 @@ class SubtitlesDock : public EditorDock {
 	VideoStreamPlayer *video_player = nullptr;
 	Label *video_text_label = nullptr;
 	Label *problem_header = nullptr;
-	ItemList *problem_list = nullptr;
+	ItemList *problem_view = nullptr;
 	ConfirmationDialog *shift_dialog = nullptr;
 	LineEdit *shift_edit = nullptr;
 	ConfirmationDialog *sync_dialog = nullptr;
@@ -169,7 +169,7 @@ class SubtitlesDock : public EditorDock {
 	void _segment_changed(int p_index);
 	void _select(int p_index, bool p_scroll_tree = true);
 	void _jump_to(int p_index);
-	void _update_problem_list();
+	void _update_problem_view();
 	void _problem_selected(int p_item);
 	void _update_video_text();
 

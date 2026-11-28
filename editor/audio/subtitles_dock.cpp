@@ -424,12 +424,12 @@ void SubtitlesDock::_update_tree() {
 	}
 	updating_tree = false;
 	if (problems_changed) {
-		_update_problem_list();
+		_update_problem_view();
 	}
 }
 
-void SubtitlesDock::_update_problem_list() {
-	problem_list->clear();
+void SubtitlesDock::_update_problem_view() {
+	problem_view->clear();
 	LocalVector<int> indices;
 	for (const KeyValue<int, PackedStringArray> &problem : problems) {
 		indices.push_back(problem.key);
@@ -437,16 +437,16 @@ void SubtitlesDock::_update_problem_list() {
 	indices.sort();
 	for (int index : indices) {
 		for (const String &message : problems.get(index)) {
-			const int item = problem_list->add_item(vformat("#%d  %s", index + 1, message));
-			problem_list->set_item_metadata(item, index);
-			problem_list->set_item_tooltip(item, message);
+			const int item = problem_view->add_item(vformat("#%d  %s", index + 1, message));
+			problem_view->set_item_metadata(item, index);
+			problem_view->set_item_tooltip(item, message);
 		}
 	}
 	problem_header->set_text(problems.is_empty() ? TTR("No problems") : vformat(TTRN("%d segment with problems", "%d segments with problems", problems.size()), problems.size()));
 }
 
 void SubtitlesDock::_problem_selected(int p_item) {
-	const int index = problem_list->get_item_metadata(p_item);
+	const int index = problem_view->get_item_metadata(p_item);
 	_select(index);
 	_jump_to(index);
 }
@@ -1532,13 +1532,13 @@ SubtitlesDock::SubtitlesDock() {
 	problem_header = memnew(Label(TTR("No problems")));
 	problem_header->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	problem_vbox->add_child(problem_header);
-	problem_list = memnew(ItemList);
-	problem_list->set_v_size_flags(SIZE_EXPAND_FILL);
-	problem_list->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
-	problem_list->set_accessibility_name(TTRC("Subtitle Problems"));
-	problem_list->set_tooltip_text(TTR("Problems found by Subtitle.validate(). Click one to select its segment and move the playhead to it."));
-	problem_list->connect(SceneStringName(item_selected), callable_mp(this, &SubtitlesDock::_problem_selected));
-	problem_vbox->add_child(problem_list);
+	problem_view = memnew(ItemList);
+	problem_view->set_v_size_flags(SIZE_EXPAND_FILL);
+	problem_view->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
+	problem_view->set_accessibility_name(TTRC("Subtitle Problems"));
+	problem_view->set_tooltip_text(TTR("Problems found by Subtitle.validate(). Click one to select its segment and move the playhead to it."));
+	problem_view->connect(SceneStringName(item_selected), callable_mp(this, &SubtitlesDock::_problem_selected));
+	problem_vbox->add_child(problem_view);
 
 	shift_dialog = memnew(ConfirmationDialog);
 	shift_dialog->set_title(TTR("Shift All Segments"));
