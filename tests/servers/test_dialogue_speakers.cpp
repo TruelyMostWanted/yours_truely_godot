@@ -91,9 +91,9 @@ TEST_CASE("[DialogueSpeaker] A change of the persona is a change of the speaker"
 
 	SIGNAL_WATCH(speakers.ptr(), "changed");
 	persona->set_rate(1.5f);
-	SIGNAL_CHECK_TRUE("changed");
+	SIGNAL_CHECK("changed", Array({ {} }));
 	speaker->set_tts_persona(Ref<TTSPersona>());
-	SIGNAL_CHECK_TRUE("changed");
+	SIGNAL_CHECK("changed", Array({ {} }));
 	persona->set_rate(0.5f); // No longer connected.
 	SIGNAL_CHECK_FALSE("changed");
 	SIGNAL_UNWATCH(speakers.ptr(), "changed");
@@ -170,7 +170,7 @@ TEST_CASE("[SubtitleServer] Speakers: never null, signals, display names") {
 	CHECK(server->get_speakers().is_valid());
 	CHECK(server->get_speakers() != speakers);
 	CHECK(server->get_speakers()->get_speakers().is_empty());
-	SIGNAL_CHECK_TRUE("speakers_changed");
+	SIGNAL_CHECK("speakers_changed", Array({ {} }));
 	SIGNAL_UNWATCH(server, "speakers_changed");
 }
 
