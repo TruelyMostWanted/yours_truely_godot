@@ -422,6 +422,12 @@ Error ResourceDatabase::_store_direct_resources(const Ref<Preloads> &p_preloads)
 
 void ResourceDatabase::begin_preload_steps(const Ref<Preloads> &p_preloads, PreloadSteps &r_steps) {
 	ERR_FAIL_COND_MSG(p_preloads.is_null(), "The preloads are null.");
+	bool is_finished = false;
+	{
+		MutexLock jobs_lock(jobs_mutex);
+		is_finished = finished;
+	}
+	ERR_FAIL_COND_MSG(is_finished, "ResourceDatabase is shutting down.");
 	r_steps.preloads = p_preloads;
 	r_steps.error = _store_direct_resources(p_preloads);
 	Job job;
@@ -434,6 +440,9 @@ void ResourceDatabase::begin_preload_steps(const Ref<Preloads> &p_preloads, Prel
 }
 
 bool ResourceDatabase::step_preload(PreloadSteps &r_steps) {
+	if (r_steps.done || r_steps.preloads.is_null()) {
+		return false;
+	}
 	if (r_steps.index < r_steps.paths.size()) {
 		const Pair<String, String> &path = r_steps.paths[r_steps.index];
 		const Error err = _load_and_store(path.first, path.second);
@@ -445,9 +454,20 @@ bool ResourceDatabase::step_preload(PreloadSteps &r_steps) {
 	if (r_steps.index < r_steps.paths.size()) {
 		return true;
 	}
+	r_steps.done = true;
 	_apply_keys(r_steps.keys);
 	callable_mp(this, &ResourceDatabase::_emit_preload_finished).call_deferred(r_steps.preloads, int(r_steps.error));
 	return false;
+}
+
+int ResourceDatabase::get_preload_total(const Ref<Preloads> &p_preloads) const {
+	MutexLock jobs_lock(jobs_mutex);
+	for (const KeyValue<uint64_t, Job *> &job : jobs) {
+		if (job.value->preloads == p_preloads) {
+			return int(job.value->paths.size());
+		}
+	}
+	return 0;
 }
 
 Error ResourceDatabase::preload_from(const Ref<Preloads> &p_preloads, bool p_use_threads) {

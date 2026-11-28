@@ -8,14 +8,14 @@
 		[codeblocks]
 		[gdscript]
 		func _process(_delta):
-		    var progress := ResourceLoader.load_threaded_get_manifest_status(manifest)
+		    var progress := ResourceLoader.load_threaded_step_manifest(manifest)
 		    $Label.text = "%d / %d loaded" % [progress.get_loaded_count(), progress.get_total_count()]
 		    $ProgressBar.ratio = progress.get_ratio()
 		[/gdscript]
 		[csharp]
 		public override void _Process(double delta)
 		{
-		    LoadProgress progress = ResourceLoader.LoadThreadedGetManifestStatus(manifest);
+		    LoadProgress progress = ResourceLoader.LoadThreadedStepManifest(manifest);
 		    GetNode&lt;Label&gt;("Label").Text = $"{progress.GetLoadedCount()} / {progress.GetTotalCount()} loaded";
 		    GetNode&lt;ProgressBar&gt;("ProgressBar").Ratio = progress.GetRatio();
 		}

@@ -535,6 +535,32 @@ TEST_CASE("[SceneTree][TransitionScreen] Animations replace the built-in fade; t
 	CHECK_FALSE(_is_alive(id));
 }
 
+TEST_CASE("[SceneTree][TransitionScreen] An animation without length or a looping one runs as the built-in fade") {
+	TransitionScreen *screen = memnew(TransitionScreen);
+	AnimationPlayer *player = _add_player(screen, 0.0, 0.5);
+	player->get_animation("outro")->set_loop_mode(Animation::LOOP_LINEAR);
+	screen->set_intro_animation("intro");
+	screen->set_outro_animation("outro");
+	screen->set_fade_in_duration(0.4);
+	screen->set_fade_out_duration(0.4);
+	const ObjectID id = screen->get_instance_id();
+	SceneTree::get_singleton()->get_root()->add_child(screen);
+
+	ERR_PRINT_OFF;
+	SceneTree::get_singleton()->process(0.1); // Starts; the zero-length intro falls back.
+	SceneTree::get_singleton()->process(0.2);
+	CHECK(screen->get_fade() == doctest::Approx(0.5)); // The built-in fade-in (0.4 s), not an animation wait.
+	SceneTree::get_singleton()->process(0.2);
+	CHECK(screen->get_fade() == doctest::Approx(1.0));
+	SceneTree::get_singleton()->process(0.0);
+	SceneTree::get_singleton()->process(0.2); // The looping outro falls back too.
+	ERR_PRINT_ON;
+	CHECK(screen->get_fade() == doctest::Approx(0.5));
+	SceneTree::get_singleton()->process(0.2);
+	SceneTree::get_singleton()->process(0.0);
+	CHECK_FALSE(_is_alive(id));
+}
+
 TEST_CASE("[SceneTree][TransitionScreen] A missing animation falls back to the built-in fade; mixed phases work") {
 	TransitionScreen *screen = memnew(TransitionScreen);
 	_add_player(screen, 1.0, 0.5);
@@ -645,7 +671,7 @@ TEST_CASE("[SceneTree][TransitionScreen] Ready-made templates are complete scene
 	memdelete(loading);
 
 	ERR_PRINT_OFF;
-	CHECK(TransitionScreen::create_template(TransitionScreen::Template(7)).is_null());
+	CHECK(TransitionScreen::create_template(TransitionScreen::TEMPLATE_MAX).is_null());
 	ERR_PRINT_ON;
 }
 

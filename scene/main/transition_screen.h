@@ -31,7 +31,9 @@
 #pragma once
 
 #include "core/io/load_progress.h"
+#ifndef THREADS_ENABLED
 #include "core/io/resource_database.h"
+#endif
 #include "core/variant/binder_common.h"
 #include "scene/main/canvas_layer.h"
 #include "scene/resources/packed_scene.h"
@@ -59,6 +61,7 @@ public:
 	enum Template {
 		TEMPLATE_SPLASH,
 		TEMPLATE_LOADING,
+		TEMPLATE_MAX,
 	};
 
 private:
@@ -120,6 +123,7 @@ private:
 	static TransitionScreen *_get_running_screen();
 
 protected:
+	void _get_load_counts(int &r_loaded, int &r_total) const;
 	void _notification(int p_what);
 	void _validate_property(PropertyInfo &p_property) const;
 	static void _bind_methods();
@@ -185,6 +189,8 @@ class LoadingScreen : public TransitionScreen {
 
 	int tip_index = -1;
 	double tip_time = 0.0;
+	int shown_loaded = -1; // The counts the label shows (-1: none yet).
+	int shown_total = -1;
 
 	void _show_tip(int p_index);
 

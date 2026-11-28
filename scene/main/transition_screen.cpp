@@ -43,6 +43,7 @@
 #include "scene/gui/range.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
+#include "scene/resources/animation.h"
 #include "servers/rendering/rendering_server.h"
 
 // TransitionScreen
@@ -253,6 +254,13 @@ double TransitionScreen::_play_animation(const StringName &p_animation) {
 		WARN_PRINT(vformat("TransitionScreen: The animation '%s' is not found in the animation player; the built-in fade runs instead.", String(p_animation)));
 		return -1.0;
 	}
+	// An animation that cannot report its end in time runs as the built-in fade instead of stalling the phase.
+	const Ref<Animation> animation = player->get_animation(p_animation);
+	if (animation->get_length() <= 0.001 || animation->get_loop_mode() != Animation::LOOP_NONE || Math::abs(double(player->get_speed_scale())) <= CMP_EPSILON ||
+			!player->can_process() || player->get_callback_mode_process() == AnimationMixer::ANIMATION_CALLBACK_MODE_PROCESS_MANUAL) {
+		WARN_PRINT(vformat("TransitionScreen: The animation '%s' has no length, loops, or its player does not run (paused, disabled, manual or speed 0); the built-in fade runs instead.", String(p_animation)));
+		return -1.0;
+	}
 	// The animation covers the screen itself: no canvas fade.
 	RenderingServer::get_singleton()->canvas_set_modulate(get_canvas(), Color(1, 1, 1, 1));
 	animation_done = false;
@@ -262,9 +270,7 @@ double TransitionScreen::_play_animation(const StringName &p_animation) {
 	}
 	player->play(p_animation);
 	player->advance(0.0); // The first frame is applied before the screen is drawn.
-	const double speed = Math::abs(double(player->get_speed_scale()));
-	const double length = player->get_animation(p_animation)->get_length();
-	return speed > CMP_EPSILON ? length / speed : length;
+	return animation->get_length() / Math::abs(double(player->get_speed_scale()));
 }
 
 void TransitionScreen::_animation_finished(const StringName &p_animation) {
@@ -272,8 +278,8 @@ void TransitionScreen::_animation_finished(const StringName &p_animation) {
 }
 
 // How far the phase is (0 to 1). An animated phase ends when the animation player reports the end of the animation
-// (its computed length is only the pace); a player that never reports it (stopped, other process mode) ends it
-// one second late.
+// (its computed length is only the pace). Players that cannot report it are refused in `_play_animation()`; a player
+// that stops reporting anyway ends the phase one second late, only as a safety.
 double TransitionScreen::_get_phase_ratio(double p_duration) const {
 	const double ratio = p_duration > 0.0 ? MIN(phase_time / p_duration, 1.0) : 1.0;
 	if (animation_length >= 0.0 && ratio >= 1.0 && !animation_done && phase_time < p_duration + 1.0) {
@@ -299,7 +305,7 @@ void TransitionScreen::_request_loading() {
 			database->disconnect(SNAME("preload_finished"), on_finished);
 			database->disconnect(SNAME("preload_progress"), callable_mp(this, &TransitionScreen::_preload_progress));
 		} else {
-			assets_total = database->get_preload_progress()->get_total_count(); // Known before the first event.
+			assets_total = database->get_preload_total(preload_assets); // Known before the first event.
 		}
 #else
 		// Collected once, with the type hints of the manifests; loaded one file per frame (see `_step_assets()`).
@@ -565,11 +571,17 @@ float TransitionScreen::get_progress() const {
 	return progress;
 }
 
-Ref<LoadProgress> TransitionScreen::get_load_progress() const {
-	// The scene counts as one file next to the files of the assets.
+// The scene counts as one file next to the files of the assets.
+void TransitionScreen::_get_load_counts(int &r_loaded, int &r_total) const {
 	const bool has_scene = !loading_path.is_empty() || loaded_scene.is_valid() || scene_progress >= 1.0f;
-	const int total = (has_scene ? 1 : 0) + (preload_tracked ? assets_total : 0);
-	const int loaded = (has_scene && scene_progress >= 1.0f ? 1 : 0) + (preload_tracked ? assets_loaded : 0);
+	r_total = (has_scene ? 1 : 0) + (preload_tracked ? assets_total : 0);
+	r_loaded = (has_scene && scene_progress >= 1.0f ? 1 : 0) + (preload_tracked ? assets_loaded : 0);
+}
+
+Ref<LoadProgress> TransitionScreen::get_load_progress() const {
+	int loaded = 0;
+	int total = 0;
+	_get_load_counts(loaded, total);
 	return LoadProgress::create(loaded, total, progress);
 }
 
@@ -646,6 +658,7 @@ void TransitionScreen::_bind_methods() {
 
 	BIND_ENUM_CONSTANT(TEMPLATE_SPLASH);
 	BIND_ENUM_CONSTANT(TEMPLATE_LOADING);
+	BIND_ENUM_CONSTANT(TEMPLATE_MAX);
 }
 
 TransitionScreen::TransitionScreen() {
@@ -690,15 +703,20 @@ void LoadingScreen::_update_count() {
 	if (!counter) {
 		return;
 	}
+	int loaded = 0;
+	int total = 0;
+	_get_load_counts(loaded, total);
+	if (loaded == shown_loaded && total == shown_total) {
+		return;
+	}
+	shown_loaded = loaded;
+	shown_total = total;
 	// Hidden (empty) until the total is known, so "0 / 0" never shows.
-	const Ref<LoadProgress> load_progress = get_load_progress();
 	String text;
-	if (!count_format.is_empty() && load_progress->get_total_count() > 0) {
-		text = count_format.sprintf(Array({ load_progress->get_loaded_count(), load_progress->get_total_count() }), nullptr);
+	if (!count_format.is_empty() && total > 0) {
+		text = count_format.sprintf(Array({ loaded, total }), nullptr);
 	}
-	if (counter->get(SNAME("text")) != Variant(text)) {
-		counter->set(SNAME("text"), text);
-	}
+	counter->set(SNAME("text"), text);
 }
 
 void LoadingScreen::_show_tip(int p_index) {
@@ -731,6 +749,7 @@ NodePath LoadingScreen::get_tip_label() const {
 
 void LoadingScreen::set_count_label(const NodePath &p_path) {
 	count_label = p_path;
+	shown_total = -1;
 }
 
 NodePath LoadingScreen::get_count_label() const {
@@ -739,6 +758,7 @@ NodePath LoadingScreen::get_count_label() const {
 
 void LoadingScreen::set_count_format(const String &p_format) {
 	count_format = p_format;
+	shown_total = -1;
 }
 
 String LoadingScreen::get_count_format() const {

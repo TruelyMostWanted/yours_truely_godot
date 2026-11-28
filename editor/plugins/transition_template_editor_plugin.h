@@ -46,6 +46,7 @@ class TransitionTemplateEditorPlugin : public EditorPlugin {
 	ConfirmationDialog *splash_dialog = nullptr;
 	TransitionScreen::Template pending_template = TransitionScreen::TEMPLATE_SPLASH;
 	String created_path;
+	String last_dir = "res://"; // The folder of the last template.
 
 	void _create_splash();
 	void _create_loading();

@@ -124,12 +124,15 @@ public:
 		LocalVector<Pair<String, String>> keys;
 		uint32_t index = 0; // Files loaded so far.
 		Error error = OK; // The first error.
+		bool done = false; // All files loaded, keys applied, `preload_finished` queued.
 	};
 	// Stores the direct resources of the preloads and collects its files.
 	void begin_preload_steps(const Ref<Preloads> &p_preloads, PreloadSteps &r_steps);
 	// Loads the next file. After the last file the keys are applied and `preload_finished` is emitted
 	// (deferred, like `preload_from()`). Returns true while files remain.
 	bool step_preload(PreloadSteps &r_steps);
+	// Number of files of the running preload of `p_preloads` (0 if none runs).
+	int get_preload_total(const Ref<Preloads> &p_preloads) const;
 
 	// Loads everything the preloads name. With `p_use_threads` (and threads available), the paths load
 	// on a worker thread and the call returns at once; otherwise it returns when all paths are loaded.

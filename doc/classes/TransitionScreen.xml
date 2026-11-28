@@ -44,7 +44,7 @@
 			<return type="PackedScene" />
 			<param index="0" name="template" type="int" enum="TransitionScreen.Template" />
 			<description>
-				Returns a ready-made screen scene to start from, or [code]null[/code] if it cannot be built. The scene has a [ColorRect] [code]Background[/code] in the color of [code]application/boot_splash/bg_color[/code], the project logo ([code]application/boot_splash/image[/code], else [code]application/config/icon[/code], else the project name as a [Label]), and an [AnimationPlayer] with the animations [code]intro[/code] and [code]outro[/code] set as [member intro_animation] and [member outro_animation] (the background and the content fade).
+				Returns a ready-made screen scene to start from, or [code]null[/code] if it cannot be built. All nodes are owned by the root, so it saves as a normal scene. It reads the project settings [code]application/boot_splash/bg_color[/code], [code]application/boot_splash/image[/code], [code]application/config/icon[/code] and [code]application/config/name[/code]; the text color follows the brightness of the background. The scene has a [ColorRect] [code]Background[/code] in the color of [code]application/boot_splash/bg_color[/code], the project logo ([code]application/boot_splash/image[/code], else [code]application/config/icon[/code], else the project name as a [Label]), and an [AnimationPlayer] with the animations [code]intro[/code] and [code]outro[/code] set as [member intro_animation] and [member outro_animation] (the background and the content fade).
 				[constant TEMPLATE_SPLASH] has a [SplashScreen] root. [constant TEMPLATE_LOADING] has a [LoadingScreen] root with a tip label, a [ProgressBar] and a count label, all set up.
 				In the editor, [b]Project &gt; Tools &gt; Create Splash Screen Scene...[/b] and [b]Create Loading Screen Scene...[/b] save these scenes to a file you choose and open them; a splash scene can be set as [member ProjectSettings.application/boot_splash/scene] right away.
 				[codeblocks]
@@ -98,7 +98,7 @@
 	</methods>
 	<members>
 		<member name="animation_player" type="NodePath" setter="set_animation_player" getter="get_animation_player" default="NodePath(&quot;&quot;)">
-			Path to the [AnimationPlayer] that plays [member intro_animation] and [member outro_animation], relative to the screen (usually a child of it).
+			Path to the [AnimationPlayer] that plays [member intro_animation] and [member outro_animation], relative to the screen (usually a child of it). An animation that cannot report its end runs as the built-in fade instead (a warning is printed): an animation without length, a looping one, a player with speed [code]0[/code], a player that does not process (paused or disabled) or one in manual callback mode. A phase ends when the player emits [signal AnimationMixer.animation_finished]; if that never comes, it ends one second after the animation length.
 		</member>
 		<member name="auto_finish" type="bool" setter="set_auto_finish" getter="is_auto_finish" default="true">
 			If [code]true[/code], the scene changes as soon as everything is loaded and [member min_duration] has passed. If [code]false[/code], the screen waits for [method finish] (or a skip input if [member skippable] is [code]true[/code]).
@@ -191,6 +191,9 @@
 		</constant>
 		<constant name="TEMPLATE_LOADING" value="1" enum="Template">
 			A loading screen: [LoadingScreen] root with the logo, tips, a progress bar and a count label.
+		</constant>
+		<constant name="TEMPLATE_MAX" value="2" enum="Template">
+			Represents the size of the [enum Template] enum.
 		</constant>
 	</constants>
 </class>

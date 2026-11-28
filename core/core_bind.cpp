@@ -238,6 +238,11 @@ Ref<LoadProgress> ResourceLoader::load_threaded_get_manifest_status(const Ref<Fi
 	return p_manifest->load_threaded_get_status_resources();
 }
 
+Ref<LoadProgress> ResourceLoader::load_threaded_step_manifest(const Ref<FilesManifest> &p_manifest) {
+	ERR_FAIL_COND_V(p_manifest.is_null(), Ref<LoadProgress>());
+	return p_manifest->load_threaded_step_resources();
+}
+
 Dictionary ResourceLoader::load_threaded_get_manifest(const Ref<FilesManifest> &p_manifest) {
 	ERR_FAIL_COND_V(p_manifest.is_null(), Dictionary());
 	return p_manifest->load_threaded_get_resources();
@@ -383,6 +388,7 @@ void ResourceLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("load_manifest", "manifest", "cache_mode"), &ResourceLoader::load_manifest, DEFVAL(CACHE_MODE_REUSE));
 	ClassDB::bind_method(D_METHOD("load_threaded_request_manifest", "manifest", "use_sub_threads", "cache_mode"), &ResourceLoader::load_threaded_request_manifest, DEFVAL(false), DEFVAL(CACHE_MODE_REUSE));
 	ClassDB::bind_method(D_METHOD("load_threaded_get_manifest_status", "manifest"), &ResourceLoader::load_threaded_get_manifest_status);
+	ClassDB::bind_method(D_METHOD("load_threaded_step_manifest", "manifest"), &ResourceLoader::load_threaded_step_manifest);
 	ClassDB::bind_method(D_METHOD("load_threaded_get_manifest", "manifest"), &ResourceLoader::load_threaded_get_manifest);
 	ClassDB::bind_method(D_METHOD("register_extension_loader", "extension", "loader", "type", "at_front"), &ResourceLoader::register_extension_loader, DEFVAL(StringName("Resource")), DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("unregister_extension_loader", "extension"), &ResourceLoader::unregister_extension_loader);

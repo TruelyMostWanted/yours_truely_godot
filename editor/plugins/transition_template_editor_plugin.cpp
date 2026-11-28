@@ -55,7 +55,7 @@ void TransitionTemplateEditorPlugin::_create_loading() {
 void TransitionTemplateEditorPlugin::_popup(TransitionScreen::Template p_template) {
 	pending_template = p_template;
 	file_dialog->set_title(p_template == TransitionScreen::TEMPLATE_SPLASH ? TTR("Create Splash Screen Scene") : TTR("Create Loading Screen Scene"));
-	file_dialog->set_current_dir("res://");
+	file_dialog->set_current_dir(last_dir);
 	file_dialog->set_current_file(p_template == TransitionScreen::TEMPLATE_SPLASH ? "splash_screen.tscn" : "loading_screen.tscn");
 	file_dialog->popup_file_dialog();
 }
@@ -71,18 +71,31 @@ void TransitionTemplateEditorPlugin::_file_selected(const String &p_path) {
 		EditorToaster::get_singleton()->popup_str(vformat(TTR("Could not save the scene '%s'."), p_path), EditorToaster::SEVERITY_ERROR);
 		return;
 	}
+	last_dir = p_path.get_base_dir();
 	EditorFileSystem::get_singleton()->update_file(p_path);
-	EditorInterface::get_singleton()->open_scene_from_path(p_path);
-	if (pending_template == TransitionScreen::TEMPLATE_SPLASH && String(ProjectSettings::get_singleton()->get_setting(BOOT_SPLASH_SCENE_SETTING, String())) != p_path) {
-		created_path = p_path;
-		splash_dialog->set_text(vformat(TTR("Use '%s' as the boot splash scene (Application > Boot Splash > Scene)?"), p_path));
-		splash_dialog->popup_centered();
+	if (EditorNode::get_singleton()->is_scene_open(p_path)) {
+		EditorInterface::get_singleton()->reload_scene_from_path(p_path); // Replaces the stale copy in the editor.
+	} else {
+		EditorInterface::get_singleton()->open_scene_from_path(p_path);
+	}
+	if (pending_template == TransitionScreen::TEMPLATE_SPLASH) {
+		const String current = ProjectSettings::get_singleton()->get_setting(BOOT_SPLASH_SCENE_SETTING, String());
+		if (current != p_path) {
+			created_path = p_path;
+			const String replaces = current.is_empty() ? TTR("No scene is set now.") : vformat(TTR("It replaces '%s'."), current);
+			splash_dialog->set_text(vformat(TTR("Use '%s' as the boot splash scene (Application > Boot Splash > Scene)? %s"), p_path, replaces));
+			splash_dialog->popup_centered();
+		}
+	} else {
+		EditorToaster::get_singleton()->popup_str(vformat(TTR("Created '%s'. Start it with SceneTree.change_scene_with_transition(next_scene_path, load(\"%s\"))."), p_path, p_path), EditorToaster::SEVERITY_INFO);
 	}
 }
 
 void TransitionTemplateEditorPlugin::_use_as_boot_splash() {
 	ProjectSettings::get_singleton()->set_setting(BOOT_SPLASH_SCENE_SETTING, created_path);
-	ProjectSettings::get_singleton()->save();
+	if (ProjectSettings::get_singleton()->save() != OK) {
+		EditorToaster::get_singleton()->popup_str(TTR("Could not save the project settings."), EditorToaster::SEVERITY_ERROR);
+	}
 }
 
 void TransitionTemplateEditorPlugin::_notification(int p_what) {

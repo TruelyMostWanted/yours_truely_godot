@@ -422,7 +422,7 @@ Error FilesManifest::load_threaded_request_resources(bool p_use_sub_threads, Res
 	const Error request_error = load_threaded_request_paths(paths, _get_load_type_hint(), p_use_sub_threads, p_cache_mode);
 	return paths_error != OK ? paths_error : request_error;
 #else
-	// Without threads a request loads the file at once: `load_threaded_get_status_resources()` loads one file per call.
+	// Without threads nothing loads at the request: `load_threaded_step_resources()` loads one file per call.
 	load_use_sub_threads = p_use_sub_threads;
 	load_cache_mode = p_cache_mode;
 	load_step = 0;
@@ -448,8 +448,17 @@ Ref<LoadProgress> FilesManifest::load_threaded_get_status_resources() const {
 		}
 	}
 #else
+	// Without threads the files load in `load_threaded_step_resources()`: the status only counts them.
+	loaded = load_active ? load_step : 0;
+	done = float(loaded);
+#endif
+	return LoadProgress::create(loaded, paths.size(), paths.is_empty() ? 1.0f : done / float(paths.size()));
+}
+
+Ref<LoadProgress> FilesManifest::load_threaded_step_resources() const {
+#ifndef THREADS_ENABLED
+	const PackedStringArray &paths = _get_load_paths();
 	if (load_active && load_step < paths.size()) {
-		// One blocking load per call, so calling this every frame advances the load step by step.
 		const String &path = paths[load_step++];
 		if (ResourceLoader::load_threaded_request(path, _get_load_type_hint(), load_use_sub_threads, load_cache_mode) == OK) {
 			const Ref<Resource> resource = ResourceLoader::load_threaded_get(path);
@@ -458,10 +467,8 @@ Ref<LoadProgress> FilesManifest::load_threaded_get_status_resources() const {
 			}
 		}
 	}
-	loaded = load_active ? load_step : 0;
-	done = float(loaded);
 #endif
-	return LoadProgress::create(loaded, paths.size(), paths.is_empty() ? 1.0f : done / float(paths.size()));
+	return load_threaded_get_status_resources();
 }
 
 Dictionary FilesManifest::load_threaded_get_resources() const {

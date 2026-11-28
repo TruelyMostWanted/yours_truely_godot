@@ -121,9 +121,12 @@ public:
 	// Starts a threaded load for every path, see `ResourceLoader::load_threaded_request()`.
 	Error load_threaded_request_resources(bool p_use_sub_threads = false, ResourceLoaderConstants::CacheMode p_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE) const;
 	// Progress of the threaded load: files loaded, total, and the ratio including the files still loading. A pure
-	// query with threads. Without threads (Web) a requested file loads in `load_threaded_get_resources()`, so each
-	// call loads one more requested file: calling it every frame advances the load step by step.
+	// query on every build. Main thread only (the manifest keeps the resolved paths of the request).
 	Ref<LoadProgress> load_threaded_get_status_resources() const;
+	// Advances the load. With threads it does nothing (the workers load) and returns the status. Without threads
+	// (Web) the request loaded nothing: each call loads one more requested file (one blocking step) and returns the
+	// status, so calling it every frame advances the load step by step.
+	Ref<LoadProgress> load_threaded_step_resources() const;
 	// Returns path -> Resource of the requested files (waits for those still loading); paths that fail are left out.
 	Dictionary load_threaded_get_resources() const;
 };

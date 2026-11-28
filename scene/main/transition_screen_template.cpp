@@ -69,6 +69,14 @@ static Ref<Animation> _make_fade_animation(bool p_intro, double p_length) {
 	return animation;
 }
 
+// Readable on the background: dark text on a light color, light text on a dark one.
+static void _style_label(Label *p_label, const Color &p_background, int p_font_size = 0) {
+	p_label->add_theme_color_override(SNAME("font_color"), p_background.get_luminance() < 0.5f ? Color(0.9f, 0.9f, 0.9f) : Color(0.1f, 0.1f, 0.1f));
+	if (p_font_size > 0) {
+		p_label->add_theme_font_size_override(SNAME("font_size"), p_font_size);
+	}
+}
+
 static Ref<Texture2D> _get_logo_texture() {
 	ProjectSettings *settings = ProjectSettings::get_singleton();
 	const char *const image_settings[2] = { "application/boot_splash/image", "application/config/icon" };
@@ -85,7 +93,7 @@ static Ref<Texture2D> _get_logo_texture() {
 }
 
 Ref<PackedScene> TransitionScreen::create_template(Template p_template) {
-	ERR_FAIL_INDEX_V(int(p_template), 2, Ref<PackedScene>());
+	ERR_FAIL_INDEX_V(int(p_template), int(TEMPLATE_MAX), Ref<PackedScene>());
 	const bool loading = p_template == TEMPLATE_LOADING;
 	ProjectSettings *settings = ProjectSettings::get_singleton();
 	TransitionScreen *root = loading ? static_cast<TransitionScreen *>(memnew(LoadingScreen)) : static_cast<TransitionScreen *>(memnew(SplashScreen));
@@ -96,7 +104,8 @@ Ref<PackedScene> TransitionScreen::create_template(Template p_template) {
 
 	ColorRect *background = memnew(ColorRect);
 	background->set_name("Background");
-	background->set_color(settings->get_setting("application/boot_splash/bg_color", Color(0.141f, 0.141f, 0.141f)));
+	const Color background_color = settings->get_setting("application/boot_splash/bg_color", Color(0.141f, 0.141f, 0.141f));
+	background->set_color(background_color);
 	root->add_child(background);
 	background->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
 	background->set_owner(root);
@@ -130,6 +139,7 @@ Ref<PackedScene> TransitionScreen::create_template(Template p_template) {
 		title->set_name("Title");
 		title->set_text(String(settings->get_setting("application/config/name", String())));
 		title->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
+		_style_label(title, background_color, loading ? 24 : 48);
 		column->add_child(title);
 		title->set_owner(root);
 	}
@@ -141,6 +151,7 @@ Ref<PackedScene> TransitionScreen::create_template(Template p_template) {
 		tip->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
 		tip->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 		tip->set_custom_minimum_size(Size2(400, 0));
+		_style_label(tip, background_color);
 		column->add_child(tip);
 		tip->set_owner(root);
 
@@ -154,6 +165,7 @@ Ref<PackedScene> TransitionScreen::create_template(Template p_template) {
 		Label *count = memnew(Label);
 		count->set_name("Count");
 		count->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
+		_style_label(count, background_color);
 		column->add_child(count);
 		count->set_owner(root);
 
