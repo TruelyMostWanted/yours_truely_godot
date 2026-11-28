@@ -416,6 +416,93 @@ void Subtitle::shift_times(double p_seconds) {
 	emit_changed();
 }
 
+void Subtitle::sync_times(double p_first_time, double p_first_target, double p_second_time, double p_second_target) {
+	ERR_FAIL_COND_MSG(!Math::is_finite(p_first_time) || !Math::is_finite(p_first_target) || !Math::is_finite(p_second_time) || !Math::is_finite(p_second_target), "The sync points must be finite numbers.");
+	ERR_FAIL_COND_MSG(p_second_time == p_first_time, "The two sync points need different times.");
+	const double scale = (p_second_target - p_first_target) / (p_second_time - p_first_time);
+	ERR_FAIL_COND_MSG(!(scale > 0.0), "The sync points would reverse the order of the segments.");
+	for (const Ref<SubtitleSegment> &segment : segments) {
+		if (segment.is_valid()) {
+			segment->set_start_time(p_first_target + (segment->get_start_time() - p_first_time) * scale);
+			segment->set_end_time(p_first_target + (segment->get_end_time() - p_first_time) * scale);
+		}
+	}
+	emit_changed();
+}
+
+// Splits `p_text` near `p_ratio` of its length: at the nearest line break, else at the nearest space.
+// Without either, the whole text stays in the first part.
+static void _subtitle_split_text(const String &p_text, double p_ratio, String &r_first, String &r_second) {
+	const int target = int(Math::round(p_text.length() * p_ratio));
+	for (const char32_t separator : { U'\n', U' ' }) {
+		int best = -1;
+		for (int i = p_text.find_char(separator); i >= 0; i = p_text.find_char(separator, i + 1)) {
+			if (best < 0 || Math::abs(i - target) < Math::abs(best - target)) {
+				best = i;
+			}
+		}
+		if (best >= 0) {
+			r_first = p_text.substr(0, best).strip_edges();
+			r_second = p_text.substr(best + 1).strip_edges();
+			return;
+		}
+	}
+	r_first = p_text;
+	r_second = String();
+}
+
+int Subtitle::split_segment(int p_index, double p_time) {
+	ERR_FAIL_INDEX_V(p_index, segments.size(), -1);
+	const Ref<SubtitleSegment> first = segments[p_index];
+	ERR_FAIL_COND_V(first.is_null(), -1);
+	const double start = first->get_start_time();
+	const double end = first->get_end_time();
+	ERR_FAIL_COND_V_MSG(!(p_time > start && p_time < end), -1, "The split time must be inside the segment."); // Also rejects NaN.
+	// The second part keeps speaker, kind, placement and translation context.
+	Ref<SubtitleSegment> second = first->duplicate();
+	String first_text;
+	String second_text;
+	_subtitle_split_text(first->get_text(), (p_time - start) / (end - start), first_text, second_text);
+	second->set_start_time(p_time);
+	second->set_text(second_text);
+	first->set_end_time(p_time);
+	first->set_text(first_text);
+	segments.insert(p_index + 1, second);
+	_connect_segment(second);
+	emit_changed();
+	return p_index + 1;
+}
+
+Error Subtitle::merge_segments(int p_index, int p_count) {
+	ERR_FAIL_COND_V_MSG(p_count < 2, ERR_INVALID_PARAMETER, "Merging needs at least two segments.");
+	ERR_FAIL_COND_V(p_index < 0 || p_index + p_count > segments.size(), ERR_INVALID_PARAMETER);
+	const Ref<SubtitleSegment> merged = segments[p_index];
+	ERR_FAIL_COND_V(merged.is_null(), ERR_INVALID_PARAMETER);
+	double start = merged->get_start_time();
+	double end = merged->get_end_time();
+	String text = merged->get_text();
+	for (int i = 1; i < p_count; i++) {
+		const Ref<SubtitleSegment> removed = segments[p_index + 1];
+		segments.remove_at(p_index + 1);
+		if (removed.is_null()) {
+			continue;
+		}
+		if (!segments.has(removed)) {
+			_disconnect_segment(removed);
+		}
+		start = MIN(start, removed->get_start_time());
+		end = MAX(end, removed->get_end_time());
+		if (!removed->get_text().is_empty()) {
+			text += text.is_empty() ? removed->get_text() : "\n" + removed->get_text();
+		}
+	}
+	merged->set_start_time(start);
+	merged->set_end_time(end);
+	merged->set_text(text);
+	emit_changed();
+	return OK;
+}
+
 Ref<SubtitleValidation> Subtitle::validate(double p_max_characters_per_second) const {
 	Ref<SubtitleValidation> result;
 	result.instantiate();
@@ -563,6 +650,9 @@ void Subtitle::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_start_time"), &Subtitle::get_start_time);
 	ClassDB::bind_method(D_METHOD("get_end_time"), &Subtitle::get_end_time);
 	ClassDB::bind_method(D_METHOD("shift_times", "seconds"), &Subtitle::shift_times);
+	ClassDB::bind_method(D_METHOD("sync_times", "first_time", "first_target", "second_time", "second_target"), &Subtitle::sync_times);
+	ClassDB::bind_method(D_METHOD("split_segment", "index", "time"), &Subtitle::split_segment);
+	ClassDB::bind_method(D_METHOD("merge_segments", "index", "count"), &Subtitle::merge_segments, DEFVAL(2));
 	ClassDB::bind_method(D_METHOD("validate", "max_characters_per_second"), &Subtitle::validate, DEFVAL(20.0));
 	ClassDB::bind_method(D_METHOD("get_translatable_strings"), &Subtitle::get_translatable_strings);
 	ClassDB::bind_method(D_METHOD("to_text", "format"), &Subtitle::to_text);

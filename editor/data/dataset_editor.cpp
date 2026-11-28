@@ -357,7 +357,8 @@ bool DatasetEditor::has_empty_table(Source p_source, const Variant &p_key, const
 }
 
 void DatasetEditor::read_rows(Source p_source, const Variant &p_key, const Variant &p_file_data, Array &r_records, PackedStringArray &r_names) {
-	r_records.clear();
+	// New arrays, never clear(): `r_records` may share its array with the data of a file (Array is a reference).
+	r_records = Array();
 	r_names.clear();
 	if (p_source == SOURCE_RECORDS) {
 		const Variant value = p_key.get_type() == Variant::NIL ? p_file_data : (p_file_data.get_type() == Variant::DICTIONARY ? Dictionary(p_file_data).get(p_key, Array()) : Variant());
@@ -612,12 +613,16 @@ bool DatasetEditor::_can_edit() {
 void DatasetEditor::_commit_records(const String &p_action, const Array &p_records, const PackedStringArray &p_names) {
 	OpenFile *file = _get_current_file();
 	Resource *resource = file->resource.ptr();
-	const String new_text = encode(resource, build_data(source, table_key, _get_resource_data(resource), p_records, p_names));
-	const String old_text = _get_text();
-	if (new_text == old_text) {
+	const Variant file_data = _get_resource_data(resource);
+	const Variant next_data = build_data(source, table_key, file_data, p_records, p_names);
+	// Compared as data, not as text: an edit that changes nothing (a refused value, the same value again) must not
+	// rewrite the file in the encoder's style.
+	if (next_data == file_data) {
 		_render();
 		return;
 	}
+	const String new_text = encode(resource, next_data);
+	const String old_text = _get_text();
 	// The text is the state: undo gives back the exact text, with its comments and formatting. Neighboring
 	// actions share their texts (copy-on-write), so each edit keeps about one copy of the file in memory.
 	_create_action(p_action);
@@ -1141,9 +1146,9 @@ void DatasetEditor::_build_view() {
 	csv.unref();
 	source = SOURCE_NONE;
 	table_key = Variant();
-	records.clear();
+	records = Array(); // Not clear(): the array is the one in the data of the shown file.
 	section_names.clear();
-	column_keys.clear();
+	column_keys = Array();
 	column_types.clear();
 	table_picker->clear();
 	OpenFile *file = _get_current_file();
