@@ -36,6 +36,7 @@
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
+#include "core/os/thread.h"
 #include "core/string/translation_domain.h"
 #include "core/string/translation_server.h"
 #include "servers/audio/audio_server.h"
@@ -431,7 +432,8 @@ void SubtitleServer::load_project_speakers() {
 }
 
 void SubtitleServer::add_speaker_id_hint(PropertyInfo &r_property) {
-	if (singleton == nullptr || !Engine::get_singleton()->is_editor_hint()) {
+	// The list belongs to the main thread; importers may ask for property lists on other threads.
+	if (singleton == nullptr || !Engine::get_singleton()->is_editor_hint() || !Thread::is_main_thread()) {
 		return;
 	}
 	const PackedStringArray ids = singleton->speakers->get_ids();
