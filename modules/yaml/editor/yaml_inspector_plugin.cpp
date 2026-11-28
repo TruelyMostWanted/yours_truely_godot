@@ -34,47 +34,40 @@
 
 // YAMLInspectorView
 
-Variant YAMLInspectorView::get_tree_value(const YAML *p_yaml) {
-	ERR_FAIL_NULL_V(p_yaml, Variant());
-	const int count = p_yaml->get_document_count();
-	if (count <= 1) {
-		return p_yaml->get_data();
-	}
-	Array documents;
-	for (int i = 0; i < count; i++) {
-		documents.push_back(p_yaml->get_document(i));
-	}
-	return documents;
-}
-
-void YAMLInspectorView::decorate_entry(DataFileTreeAdapter::Entry &r_entry, bool p_top_level, int p_document_count) {
-	if (p_top_level && p_document_count > 1) {
-		r_entry.key = vformat(TTR("Document %d"), r_entry.key.to_int() + 1);
-	}
-}
-
 int YAMLInspectorView::_get_document_count() const {
 	const YAML *yaml = Object::cast_to<YAML>(resource.ptr());
 	return yaml ? yaml->get_document_count() : 1;
 }
 
-String YAMLInspectorView::_get_counts(const Variant &p_data) const {
+String YAMLInspectorView::get_summary_text(const Variant &p_data) const {
 	const int count = _get_document_count();
-	return count > 1 ? vformat(TTRN("%d document", "%d documents", count), count) : get_value_counts(p_data);
+	return count > 1 ? vformat(TTRN("%d document", "%d documents", count), count) : DataFileInspectorView::get_summary_text(p_data);
 }
 
-Variant YAMLInspectorView::_get_tree_value(const Variant &p_data) const {
+Variant YAMLInspectorView::get_tree_value(const Variant &p_data) const {
+	const int count = _get_document_count();
+	if (count <= 1) {
+		return p_data;
+	}
 	const YAML *yaml = Object::cast_to<YAML>(resource.ptr());
-	return yaml ? get_tree_value(yaml) : p_data;
+	Array documents;
+	for (int i = 0; i < count; i++) {
+		documents.push_back(yaml->get_document(i));
+	}
+	return documents;
 }
 
-void YAMLInspectorView::_decorate_entry(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const {
-	decorate_entry(r_entry, p_top_level, _get_document_count());
+void YAMLInspectorView::decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const {
+	if (p_top_level && _get_document_count() > 1) {
+		// The adapter names Array items by their index.
+		r_entry.key = vformat(TTR("Document %d"), r_entry.key.to_int() + 1);
+		r_entry.type = TTR("Document");
+	}
 }
 
 // EditorInspectorPluginYAML
 
-DataFileInspectorView *EditorInspectorPluginYAML::_create_view(const Ref<Resource> &p_resource) const {
+DataFileInspectorView *EditorInspectorPluginYAML::create_view(const Ref<Resource> &p_resource) const {
 	return memnew(YAMLInspectorView(p_resource));
 }
 

@@ -32,7 +32,7 @@
 
 #include "core/io/xml_format.h"
 
-String XMLInspectorView::get_counts(const Variant &p_data) {
+String XMLInspectorView::get_summary_text(const Variant &p_data) const {
 	const Dictionary root = p_data;
 	if (root.is_empty()) {
 		return TTR("No root element");
@@ -41,7 +41,7 @@ String XMLInspectorView::get_counts(const Variant &p_data) {
 	return vformat(TTRN("Root element <%s>, %d child node", "Root element <%s>, %d child nodes", children), root.get(XML::KEY_NAME, String()), children);
 }
 
-Array XMLInspectorView::get_tree_value(const Variant &p_data) {
+Variant XMLInspectorView::get_tree_value(const Variant &p_data) const {
 	const Dictionary root = p_data;
 	Array nodes;
 	if (!root.is_empty()) {
@@ -50,7 +50,7 @@ Array XMLInspectorView::get_tree_value(const Variant &p_data) {
 	return nodes;
 }
 
-DataFileInspectorView *EditorInspectorPluginXML::_create_view(const Ref<Resource> &p_resource) const {
+DataFileInspectorView *EditorInspectorPluginXML::create_view(const Ref<Resource> &p_resource) const {
 	return memnew(XMLInspectorView(p_resource));
 }
 

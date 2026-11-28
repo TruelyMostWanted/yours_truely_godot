@@ -35,22 +35,19 @@
 class YAML;
 
 // The inspector view of a YAML file: the value tree of `data`; a file with several documents ("---") shows every
-// document as a top-level row "Document N" and their number in the summary.
+// document as a top-level row "Document N" of type "Document" and their number in the summary.
 class YAMLInspectorView : public DataFileInspectorView {
 	GDCLASS(YAMLInspectorView, DataFileInspectorView);
 
 	int _get_document_count() const;
 
-protected:
-	virtual String _get_counts(const Variant &p_data) const override;
-	virtual Variant _get_tree_value(const Variant &p_data) const override;
-	virtual void _decorate_entry(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const override;
-
 public:
-	// The value tree: `data`, or with several documents an Array of all documents.
-	static Variant get_tree_value(const YAML *p_yaml);
+	// "N documents" with several documents, else the type and size of `data`.
+	virtual String get_summary_text(const Variant &p_data) const override;
+	// `data`, or with several documents an Array of all documents.
+	virtual Variant get_tree_value(const Variant &p_data) const override;
 	// With several documents, a top-level row is a document.
-	static void decorate_entry(DataFileTreeAdapter::Entry &r_entry, bool p_top_level, int p_document_count);
+	virtual void decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const override;
 
 	YAMLInspectorView(const Ref<Resource> &p_resource) :
 			DataFileInspectorView(p_resource) {}
@@ -59,9 +56,7 @@ public:
 class EditorInspectorPluginYAML : public EditorInspectorPluginDataFile {
 	GDCLASS(EditorInspectorPluginYAML, EditorInspectorPluginDataFile);
 
-protected:
-	virtual DataFileInspectorView *_create_view(const Ref<Resource> &p_resource) const override;
-
 public:
+	virtual DataFileInspectorView *create_view(const Ref<Resource> &p_resource) const override;
 	virtual bool can_handle(Object *p_object) override;
 };

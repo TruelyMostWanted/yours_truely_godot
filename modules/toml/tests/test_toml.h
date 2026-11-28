@@ -626,26 +626,38 @@ TEST_CASE("[TOML] Resource API: dotted table paths and plain files") {
 }
 
 #ifdef TOOLS_ENABLED
-TEST_CASE("[TOMLInspectorView] Tables in TOML terms") {
+TEST_CASE("[SceneTree][TOMLInspectorView] Tables in TOML terms") {
 	Ref<TOML> toml;
 	toml.instantiate();
 	REQUIRE(toml->parse("title = \"Game\"\n\n[server]\nport = 8080\n\n[[unit]]\nname = \"knight\"\n\n[[unit]]\nname = \"archer\"\n") == OK);
-	CHECK(TOMLInspectorView::get_counts(toml->get_data()) == "2 tables, 1 key");
+	Ref<EditorInspectorPluginTOML> plugin;
+	plugin.instantiate();
+	CHECK(plugin->can_handle(toml.ptr()));
+	for (const char *other : { "CSV", "INI", "XML", "JSON", "YAML" }) {
+		if (ClassDB::class_exists(other)) {
+			const Ref<RefCounted> format = Object::cast_to<RefCounted>(ClassDB::instantiate(other));
+			CHECK_FALSE(plugin->can_handle(format.ptr()));
+		}
+	}
+	TOMLInspectorView *view = Object::cast_to<TOMLInspectorView>(plugin->create_view(toml));
+	REQUIRE(view != nullptr);
+	CHECK(view->get_summary_text(toml->get_data()) == "2 tables, 1 key");
 
-	const Dictionary root = toml->get_data();
-	DataFileTreeAdapter::Entry entry = DataFileTreeAdapter::make_entry("server", root["server"], false);
-	TOMLInspectorView::decorate_entry(entry);
-	CHECK(entry.type == "Table");
-	CHECK(entry.value == "1 key");
-	entry = DataFileTreeAdapter::make_entry("unit", root["unit"], false);
-	TOMLInspectorView::decorate_entry(entry);
-	CHECK(entry.type == "Array of Tables");
-	entry = DataFileTreeAdapter::make_entry("title", root["title"], false);
-	TOMLInspectorView::decorate_entry(entry);
-	CHECK(entry.type == "String");
+	LocalVector<DataFileTreeAdapter::Entry> rows;
+	DataFileTreeAdapter::get_children(view->get_tree_value(toml->get_data()), false, 0, -1, rows);
+	REQUIRE(rows.size() == 3);
+	for (DataFileTreeAdapter::Entry &row : rows) {
+		view->decorate_row(row, true);
+	}
+	CHECK(rows[0].key == "title");
+	CHECK(rows[0].type == "String");
+	CHECK(rows[1].type == "Table");
+	CHECK(rows[1].value == "1 key");
+	CHECK(rows[2].type == "Array of Tables");
 
 	CHECK_FALSE(TOMLInspectorView::is_array_of_tables(Array()));
 	CHECK_FALSE(TOMLInspectorView::is_array_of_tables(Array({ 1, 2 })));
+	memdelete(view);
 }
 #endif // TOOLS_ENABLED
 

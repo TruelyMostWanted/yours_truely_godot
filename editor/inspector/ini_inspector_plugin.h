@@ -33,31 +33,26 @@
 #include "editor/inspector/data_file_inspector_plugin.h"
 
 // The inspector view of an INI file: sections and keys in the summary, a tree of sections (type "Section",
-// keys without a section under "(no section)") with their typed keys, and the INI and Dataset docks.
+// keys without a section under "(no section)") with their typed keys, Open in INI Dock (first) and the shared
+// Open in Dataset Dock (sections as rows).
 class INIInspectorView : public DataFileInspectorView {
 	GDCLASS(INIInspectorView, DataFileInspectorView);
 
-protected:
-	virtual String _get_counts(const Variant &p_data) const override { return get_counts(p_data); }
-	virtual void _decorate_entry(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const override { decorate_entry(r_entry, p_top_level); }
-	virtual bool _can_open_in(Dock p_dock) const override { return p_dock == DOCK_INI; }
+	void _open_in_ini_dock();
 
 public:
 	// "N sections, M keys" of INI data (section -> key -> value).
-	static String get_counts(const Variant &p_data);
+	virtual String get_summary_text(const Variant &p_data) const override;
 	// Top-level rows are sections.
-	static void decorate_entry(DataFileTreeAdapter::Entry &r_entry, bool p_top_level);
+	virtual void decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const override;
 
-	INIInspectorView(const Ref<Resource> &p_resource) :
-			DataFileInspectorView(p_resource) {}
+	INIInspectorView(const Ref<Resource> &p_resource);
 };
 
 class EditorInspectorPluginINI : public EditorInspectorPluginDataFile {
 	GDCLASS(EditorInspectorPluginINI, EditorInspectorPluginDataFile);
 
-protected:
-	virtual DataFileInspectorView *_create_view(const Ref<Resource> &p_resource) const override;
-
 public:
+	virtual DataFileInspectorView *create_view(const Ref<Resource> &p_resource) const override;
 	virtual bool can_handle(Object *p_object) override;
 };

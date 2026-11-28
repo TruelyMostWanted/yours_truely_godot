@@ -245,9 +245,10 @@ bool EditorInspectorPluginSpriteSheet::can_handle(Object *p_object) {
 ### 2.7 Basisklasse einer Familie: nur der gemeinsame Lebenszyklus
 
 Behandeln Loader, Saver, Serializer und Editor mehrere Klassen gleich, bekommen sie eine abstrakte Basisklasse. Die
-Basis hält nur, was alle gleich tun (Lebenszyklus), nie ein gemeinsames Datenmodell: Form der Daten, API zum Bearbeiten,
-Inspector und Dock gehören der einzelnen Klasse. Neue Virtuals der Basis nur für den Lebenszyklus; alles Formatspezifische
-kommt in die Unterklasse.
+Basis hält nur, was alle gleich tun (Lebenszyklus), nie ein gemeinsames Datenmodell: Form der Daten, API zum Bearbeiten
+und Inspector gehören der einzelnen Klasse, ein eigenes Editor-Dock dort, wo die Klasse eines braucht. Ein Dock, das
+mehrere Klassen gleich bearbeitet (Tabellen), bleibt gemeinsam. Neue Virtuals der Basis nur für den Lebenszyklus; alles
+Formatspezifische kommt in die Unterklasse.
 
 **Godot** · `core/object/script_language.h`: `Script` teilt Laden, Quelltext und Instanzen; jede Sprache hat ihre eigene
 API, der `ScriptEditor` bedient die ganze Familie.
@@ -261,7 +262,8 @@ class Script : public Resource {
 `INI`, `XML`, `TOML`, `YAML`: `parse()` mit behaltenem Text, Fehler mit Zeile/Spalte, `options`, `load()`/`save()`,
 `validate()`, Endungen, `changed`. `data` ist pro Klasse typisiert; bearbeitet wird über die API der Klasse
 (`CSV.set_cell()`, `INI.set_value()`, `XML.get_root()`, `TOML.get_value()`, `YAML.get_value()`). Die Inspector-Plugins
-sind pro Format (#435, Abschnitt 6.2), ebenso die Docks (INI-Dock, Dataset-Dock).
+sind pro Format (#435, Abschnitt 6.2). Docks nach Gebrauch: das INI-Dock und die Localization Table (Übersetzungs-CSVs)
+für ein Format, das Dataset-Dock gemeinsam für alle Formate mit einer Tabelle.
 
 ```cpp
 class TextDataFormat : public Resource {
@@ -589,19 +591,22 @@ Zusätzliche Anzeigen und Knöpfe im Inspector (Vorschau, Tabelle, „Edit Regio
 Beispiele: [2.6](#26-editor-plugin-nur-bedienung).
 
 Eine Familie von Klassen (Abschnitt 2.7) bekommt **ein Inspector-Plugin pro Klasse** auf einer gemeinsamen View. Die
-View hält, was alle zeigen (Zusammenfassung, Parse-Status, Prüfung, Knöpfe zu den Docks); jede Klasse leitet ihre
-eigene View ab und zeigt, was zu ihr passt. Kein Plugin mit `if`-Ketten über die Klassen.
+View hält, was alle zeigen (Zusammenfassung, Parse-Status, Prüfung, den Knopf zum gemeinsamen Dock); jede Klasse leitet
+ihre eigene View ab und zeigt, was zu ihr passt, auch die Knöpfe ihrer eigenen Docks. Die gemeinsame View kennt keine
+einzelne Klasse der Familie. Kein Plugin mit `if`-Ketten über die Klassen. Wird die View in Zeilen umbrochen
+(`HFlowContainer` für Knopfreihen), bleibt der Inspector auch schmal ohne horizontale Bildlaufleiste.
 
 **Truely** · `editor/inspector/data_file_inspector_plugin.h` (#435): `DataFileInspectorView` mit Virtuals für
-Zusammenfassung, Vorschau, Zeilen und Docks; `EditorInspectorPluginCSV` (Tabelle, Schema der Spalten), `...INI`
-(Sections), `...XML` (Elementbaum), `...JSON` (Wertebaum), in ihren Modulen `...YAML` (Dokumente) und `...TOML` (Tabellen).
+Zusammenfassung, Baum, Zeilennamen, Vorschau und eigene Docks (`_add_dock_button()`); `EditorInspectorPluginCSV`
+(Tabelle, Schema der Spalten, Localization Table), `...INI` (Sections, INI-Dock), `...XML` (Elementbaum), `...JSON`
+(Wertebaum), in ihren Modulen `...YAML` (Dokumente) und `...TOML` (Tabellen).
 
 ```cpp
 class EditorInspectorPluginINI : public EditorInspectorPluginDataFile {
 	GDCLASS(EditorInspectorPluginINI, EditorInspectorPluginDataFile);
 
-protected:
-	virtual DataFileInspectorView *_create_view(const Ref<Resource> &p_resource) const override;
+public:
+	virtual DataFileInspectorView *create_view(const Ref<Resource> &p_resource) const override;
 ```
 
 ---

@@ -38,15 +38,11 @@
 class XMLInspectorView : public DataFileInspectorView {
 	GDCLASS(XMLInspectorView, DataFileInspectorView);
 
-protected:
-	virtual String _get_counts(const Variant &p_data) const override { return get_counts(p_data); }
-	virtual Variant _get_tree_value(const Variant &p_data) const override { return get_tree_value(p_data); }
-
 public:
 	// "Root element <tag>, N child nodes" of XML data (the root element).
-	static String get_counts(const Variant &p_data);
+	virtual String get_summary_text(const Variant &p_data) const override;
 	// The root element as the only top-level node.
-	static Array get_tree_value(const Variant &p_data);
+	virtual Variant get_tree_value(const Variant &p_data) const override;
 
 	XMLInspectorView(const Ref<Resource> &p_resource) :
 			DataFileInspectorView(p_resource) {
@@ -57,9 +53,7 @@ public:
 class EditorInspectorPluginXML : public EditorInspectorPluginDataFile {
 	GDCLASS(EditorInspectorPluginXML, EditorInspectorPluginDataFile);
 
-protected:
-	virtual DataFileInspectorView *_create_view(const Ref<Resource> &p_resource) const override;
-
 public:
+	virtual DataFileInspectorView *create_view(const Ref<Resource> &p_resource) const override;
 	virtual bool can_handle(Object *p_object) override;
 };

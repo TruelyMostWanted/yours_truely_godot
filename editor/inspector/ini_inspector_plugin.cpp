@@ -31,8 +31,10 @@
 #include "ini_inspector_plugin.h"
 
 #include "core/io/ini_format.h"
+#include "core/object/callable_mp.h"
+#include "editor/data/ini_editor.h"
 
-String INIInspectorView::get_counts(const Variant &p_data) {
+String INIInspectorView::get_summary_text(const Variant &p_data) const {
 	const Dictionary sections = p_data;
 	int key_count = 0;
 	for (const KeyValue<Variant, Variant> &kv : sections) {
@@ -41,7 +43,7 @@ String INIInspectorView::get_counts(const Variant &p_data) {
 	return vformat(TTRN("%d section", "%d sections", sections.size()), sections.size()) + ", " + vformat(TTRN("%d key", "%d keys", key_count), key_count);
 }
 
-void INIInspectorView::decorate_entry(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) {
+void INIInspectorView::decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const {
 	if (!p_top_level) {
 		return;
 	}
@@ -51,7 +53,20 @@ void INIInspectorView::decorate_entry(DataFileTreeAdapter::Entry &r_entry, bool 
 	}
 }
 
-DataFileInspectorView *EditorInspectorPluginINI::_create_view(const Ref<Resource> &p_resource) const {
+void INIInspectorView::_open_in_ini_dock() {
+	INIEditor *ini_editor = INIEditor::get_singleton();
+	if (ini_editor) {
+		ini_editor->edit(Ref<INI>(resource));
+		ini_editor->make_visible();
+	}
+}
+
+INIInspectorView::INIInspectorView(const Ref<Resource> &p_resource) :
+		DataFileInspectorView(p_resource) {
+	_add_dock_button(TTR("Open in INI Dock"), TTR("Edit the sections and keys in the INI dock."), callable_mp(this, &INIInspectorView::_open_in_ini_dock));
+}
+
+DataFileInspectorView *EditorInspectorPluginINI::create_view(const Ref<Resource> &p_resource) const {
 	return memnew(INIInspectorView(p_resource));
 }
 

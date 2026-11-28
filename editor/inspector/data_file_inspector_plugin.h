@@ -38,6 +38,7 @@
 
 class Button;
 class CheckBox;
+class HFlowContainer;
 class ItemList;
 class Label;
 class LineEdit;
@@ -64,9 +65,12 @@ public:
 	static int get_child_count(const Variant &p_value, bool p_xml);
 	// The children from index p_from, at most p_count (all with -1).
 	static void get_children(const Variant &p_value, bool p_xml, int p_from, int p_count, LocalVector<Entry> &r_entries);
+	// Renames an entry as the view shows it (see DataFileInspectorView::decorate_row()); p_context is the view.
+	typedef void (*DecorateFunc)(const void *p_context, Entry &r_entry, bool p_top_level);
+
 	// Paths (child indices from p_root) of the entries whose key or scalar value contains p_query (case-insensitive),
-	// depth-first in document order, at most p_max.
-	static Vector<PackedInt32Array> find(const Variant &p_root, bool p_xml, const String &p_query, int p_max);
+	// depth-first in document order, at most p_max. With p_decorate, the keys are matched as the view shows them.
+	static Vector<PackedInt32Array> find(const Variant &p_root, bool p_xml, const String &p_query, int p_max, DecorateFunc p_decorate = nullptr, const void *p_context = nullptr);
 	// Path of a child that stays the same when the data is parsed again: "/"-separated keys ("/" and "\" in keys
 	// escaped with "\"). XML uses the child index, because sibling elements often share their tag.
 	static String make_child_path(const String &p_parent_path, const String &p_key, int p_index, bool p_xml);
@@ -76,26 +80,15 @@ public:
 };
 
 // The shared inspector view of a data file (TextDataFormat or JSON): a summary with parse status and schema
-// issues, a read-only preview, buttons to open the file in a dock, and Validate. The default preview is a
-// Key | Type | Value tree filled on expand, with search. Each format has its own inspector plugin, which may
-// create its own view (summary, preview, docks): CSVInspectorView, INIInspectorView, XMLInspectorView, and in
-// their modules YAMLInspectorView and TOMLInspectorView. JSON uses this view as it is.
+// issues, a read-only preview, Open in Dataset Dock (shared by every format with a table) and Validate. The
+// default preview is a Key | Type | Value tree filled on expand, with search. Each format has its own inspector
+// plugin, which may create its own view (summary, preview, rows, own docks): CSVInspectorView, INIInspectorView,
+// XMLInspectorView, and in their modules YAMLInspectorView and TOMLInspectorView. JSON uses this view as it is.
+// The view handles TextDataFormat and JSON documents (parse error, kept text, validation), because JSON is
+// Godot's class and not a TextDataFormat.
 class DataFileInspectorView : public VBoxContainer {
 	GDCLASS(DataFileInspectorView, VBoxContainer);
 
-public:
-	// The docks a data file opens in, in the order of their buttons.
-	enum Dock {
-		DOCK_INI,
-		DOCK_LOCALIZATION_TABLE,
-		DOCK_DATASET,
-		DOCK_MAX,
-	};
-
-	// The summary of a value: its type, and the size of a container ("Dictionary, 3 keys").
-	static String get_value_counts(const Variant &p_value);
-
-private:
 	static constexpr int CHILD_PAGE = 200;
 	static constexpr int MAX_MATCHES = 100;
 	static constexpr int MAX_ISSUES = 100;
@@ -106,12 +99,13 @@ private:
 
 	Label *summary_label = nullptr;
 	Label *status_label = nullptr;
-	Button *dock_buttons[DOCK_MAX] = {};
+	HFlowContainer *button_row = nullptr;
 	Timer *search_timer = nullptr;
 	Timer *update_timer = nullptr;
 	ItemList *issue_list = nullptr;
 	CheckBox *raw_check = nullptr;
 
+	static void _decorate_found(const void *p_context, DataFileTreeAdapter::Entry &r_entry, bool p_top_level);
 	String _get_parsed_text() const;
 	TreeItem *_create_item(TreeItem *p_parent, const DataFileTreeAdapter::Entry &p_entry, int p_index, bool p_lazy);
 	void _fill(TreeItem *p_parent, int p_from);
@@ -119,7 +113,7 @@ private:
 	void _collect_expanded(TreeItem *p_item, HashSet<String> &r_paths) const;
 	void _restore(TreeItem *p_item, const HashSet<String> &p_expanded, const String &p_selected);
 	void _update_tree();
-	void _update_dock_buttons();
+	void _update_dataset_button();
 	void _queue_update();
 	void _update();
 	void _validate(bool p_force);
@@ -128,39 +122,46 @@ private:
 	void _expand_deferred(ObjectID p_item_id);
 	void _item_selected();
 	void _open_text(int p_line);
-	void _open_in(int p_dock);
+	void _open_in_dataset_dock();
 	void _issue_activated(int p_index);
 	void _raw_toggled(bool p_pressed);
 
 protected:
+	static constexpr int CHILD_PAGE = 200;
+
 	Ref<Resource> resource;
 	bool xml = false; // The tree shows XML elements (see DataFileTreeAdapter).
+	Button *dataset_button = nullptr; // Visible when the file has a table (DatasetEditor::find_tables()).
 	LineEdit *search = nullptr;
 	Tree *tree = nullptr;
 	Label *more_label = nullptr;
 
 	int _get_row_height() const;
+	// Adds a button for a dock of the format, before Open in Dataset Dock. For the constructor of a format's view.
+	Button *_add_dock_button(const String &p_text, const String &p_tooltip, const Callable &p_pressed);
 
-	// Per format: the text after "<class>: " in the summary.
-	virtual String _get_counts(const Variant &p_data) const { return get_value_counts(p_data); }
-	// Per format: the value whose children are the top-level rows of the tree.
-	virtual Variant _get_tree_value(const Variant &p_data) const { return p_data; }
-	// Per format: the key or type of a tree row in the terms of the format (INI sections, TOML tables).
-	virtual void _decorate_entry(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const {}
-	// Per format: whether the file opens in the INI dock or in the Localization Table dock. The Dataset dock
-	// takes every file with a table (DatasetEditor::find_tables()).
-	virtual bool _can_open_in(Dock p_dock) const { return false; }
+	// Per format: shows or hides the format's own dock buttons (_add_dock_button()) for the current data.
+	virtual void _update_dock_buttons() {}
 	// Per format: the preview of `data`, the tree by default.
 	virtual void _update_preview(const Variant &p_data);
 
 	void _notification(int p_what);
 
 public:
+	// Per format: the text after "<class>: " in the summary. By default the type of `data` and the size of a
+	// container ("Dictionary, 3 keys").
+	virtual String get_summary_text(const Variant &p_data) const;
+	// Per format: the value whose children are the top-level rows of the tree.
+	virtual Variant get_tree_value(const Variant &p_data) const { return p_data; }
+	// Per format: the key or type of a tree row in the terms of the format (INI sections, TOML tables). Search
+	// matches the renamed keys too.
+	virtual void decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const {}
+
 	DataFileInspectorView(const Ref<Resource> &p_resource);
 };
 
 // The shared part of the inspector plugins of the data formats: adds the format's view in place of the default
-// editor of `data`. Each format overrides can_handle() and, for a view of its own, _create_view().
+// editor of `data`. Each format overrides can_handle() and, for a view of its own, create_view().
 class EditorInspectorPluginDataFile : public EditorInspectorPlugin {
 	GDCLASS(EditorInspectorPluginDataFile, EditorInspectorPlugin);
 
@@ -169,11 +170,13 @@ class EditorInspectorPluginDataFile : public EditorInspectorPlugin {
 	void _add_view(Object *p_object);
 
 protected:
-	virtual DataFileInspectorView *_create_view(const Ref<Resource> &p_resource) const;
 	// The stored properties that the view shows (`data`; CSV also `header`).
 	virtual bool _is_previewed_property(Object *p_object, const String &p_path) const { return p_path == "data"; }
 
 public:
+	// The view of the format (the caller owns it).
+	virtual DataFileInspectorView *create_view(const Ref<Resource> &p_resource) const;
+
 	// Shows the default editors of the previewed properties as well (editor session, all data files).
 	static inline bool show_raw_properties = false;
 

@@ -50,7 +50,7 @@ bool TOMLInspectorView::is_array_of_tables(const Variant &p_value) {
 	return true;
 }
 
-String TOMLInspectorView::get_counts(const Variant &p_data) {
+String TOMLInspectorView::get_summary_text(const Variant &p_data) const {
 	const Dictionary root = p_data;
 	int table_count = 0;
 	for (const KeyValue<Variant, Variant> &kv : root) {
@@ -62,7 +62,7 @@ String TOMLInspectorView::get_counts(const Variant &p_data) {
 	return vformat(TTRN("%d table", "%d tables", table_count), table_count) + ", " + vformat(TTRN("%d key", "%d keys", key_count), key_count);
 }
 
-void TOMLInspectorView::decorate_entry(DataFileTreeAdapter::Entry &r_entry) {
+void TOMLInspectorView::decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const {
 	if (r_entry.data.get_type() == Variant::DICTIONARY) {
 		r_entry.type = TTR("Table");
 	} else if (is_array_of_tables(r_entry.data)) {
@@ -72,7 +72,7 @@ void TOMLInspectorView::decorate_entry(DataFileTreeAdapter::Entry &r_entry) {
 
 // EditorInspectorPluginTOML
 
-DataFileInspectorView *EditorInspectorPluginTOML::_create_view(const Ref<Resource> &p_resource) const {
+DataFileInspectorView *EditorInspectorPluginTOML::create_view(const Ref<Resource> &p_resource) const {
 	return memnew(TOMLInspectorView(p_resource));
 }
 
