@@ -65,6 +65,25 @@ String CSVInspectorView::get_column_tooltip(const String &p_column, const Ref<Da
 	return tooltip;
 }
 
+PackedInt32Array CSVInspectorView::get_column_chars(const PackedStringArray &p_header, const Array &p_rows, int p_max_rows, int p_max_columns, int p_max_chars) {
+	const int row_count = MIN(p_rows.size(), p_max_rows);
+	int column_count = p_header.size();
+	for (int i = 0; i < row_count; i++) {
+		column_count = MAX(column_count, (int)PackedStringArray(p_rows[i]).size());
+	}
+
+	PackedInt32Array chars;
+	chars.resize_initialized(MIN(column_count, p_max_columns));
+	int *w = chars.ptrw();
+	for (int i = -1; i < row_count; i++) {
+		const PackedStringArray cells = i < 0 ? p_header : PackedStringArray(p_rows[i]);
+		for (int column = 0; column < MIN(cells.size(), chars.size()); column++) {
+			w[column] = MIN(MAX(w[column], cells[column].length()), p_max_chars);
+		}
+	}
+	return chars;
+}
+
 String CSVInspectorView::get_summary_text(const Variant &p_data) const {
 	const Ref<CSV> csv = resource;
 	const int rows = csv->get_row_count();
@@ -85,10 +104,16 @@ void CSVInspectorView::_open_in_localization_table_dock() {
 }
 
 void CSVInspectorView::_update_preview(const Variant &p_data) {
+	// The path form (Path,Key,Value) is a tree, every other CSV a table.
+	search->set_visible(adapter.is_valid());
+	if (adapter.is_valid()) {
+		DataFileInspectorView::_update_preview(p_data);
+		return;
+	}
 	const Ref<CSV> csv = resource;
 	const Array rows = p_data;
 	const PackedStringArray header = csv->get_header();
-	const PackedInt32Array chars = DataFileTreeAdapter::get_column_chars(header, rows, PREVIEW_ROWS, PREVIEW_COLUMNS, MAX_CELL_CHARS);
+	const PackedInt32Array chars = get_column_chars(header, rows, PREVIEW_ROWS, PREVIEW_COLUMNS, MAX_CELL_CHARS);
 	const int row_count = MIN(rows.size(), PREVIEW_ROWS);
 	const Ref<DataSchema> schema = header.is_empty() ? Ref<DataSchema>() : EditorDataSchemaLookup::find_schema(resource->get_path());
 	tree->clear();
@@ -147,7 +172,7 @@ void CSVInspectorView::_update_preview(const Variant &p_data) {
 
 CSVInspectorView::CSVInspectorView(const Ref<Resource> &p_resource) :
 		DataFileInspectorView(p_resource) {
-	search->hide(); // The table shows rows, not a tree to search.
+	search->set_visible(adapter.is_valid()); // A table shows rows, not a tree to search.
 	localization_button = _add_dock_button(TTR("Open in Localization Table Dock"), TTR("Edit the translations in the Localization Table dock."), callable_mp(this, &CSVInspectorView::_open_in_localization_table_dock));
 	localization_button->hide();
 }

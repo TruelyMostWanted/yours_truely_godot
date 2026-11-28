@@ -44,27 +44,6 @@ String YAMLInspectorView::get_summary_text(const Variant &p_data) const {
 	return count > 1 ? vformat(TTRN("%d document", "%d documents", count), count) : DataFileInspectorView::get_summary_text(p_data);
 }
 
-Variant YAMLInspectorView::get_tree_value(const Variant &p_data) const {
-	const int count = _get_document_count();
-	if (count <= 1) {
-		return p_data;
-	}
-	const YAML *yaml = Object::cast_to<YAML>(resource.ptr());
-	Array documents;
-	for (int i = 0; i < count; i++) {
-		documents.push_back(yaml->get_document(i));
-	}
-	return documents;
-}
-
-void YAMLInspectorView::decorate_row(DataFileTreeAdapter::Entry &r_entry, bool p_top_level) const {
-	if (p_top_level && _get_document_count() > 1) {
-		// The adapter names Array items by their index.
-		r_entry.key = vformat(TTR("Document %d"), r_entry.key.to_int() + 1);
-		r_entry.type = TTR("Document");
-	}
-}
-
 // EditorInspectorPluginYAML
 
 DataFileInspectorView *EditorInspectorPluginYAML::create_view(const Ref<Resource> &p_resource) const {
