@@ -41,6 +41,7 @@
 #include "scene/resources/animation.h"
 #include "scene/resources/animation_library.h"
 #include "scene/resources/packed_scene.h"
+#include "scene/resources/style_box_flat.h"
 #include "scene/resources/texture.h"
 
 // Ready-made splash and loading screen scenes (#440). The editor saves them as `.tscn` files to start from; the
@@ -123,7 +124,10 @@ Ref<PackedScene> TransitionScreen::create_template(Template p_template) {
 	content->add_child(column);
 	column->set_owner(root);
 
-	// The logo of the project, or its name when it has no image.
+	column->add_theme_constant_override(SNAME("separation"), loading ? 20 : 28);
+	const Color text_color = background_color.get_luminance() < 0.5f ? Color(0.9f, 0.9f, 0.9f) : Color(0.1f, 0.1f, 0.1f);
+
+	// The logo of the project (when it has an image) above its name.
 	const Ref<Texture2D> logo_texture = _get_logo_texture();
 	if (logo_texture.is_valid()) {
 		TextureRect *logo = memnew(TextureRect);
@@ -134,45 +138,59 @@ Ref<PackedScene> TransitionScreen::create_template(Template p_template) {
 		logo->set_custom_minimum_size(loading ? Size2(128, 128) : Size2(256, 256));
 		column->add_child(logo);
 		logo->set_owner(root);
-	} else {
-		Label *title = memnew(Label);
-		title->set_name("Title");
-		title->set_text(String(settings->get_setting("application/config/name", String())));
-		title->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
-		_style_label(title, background_color, loading ? 24 : 48);
-		column->add_child(title);
-		title->set_owner(root);
 	}
+	Label *title = memnew(Label);
+	title->set_name("Title");
+	title->set_text(String(settings->get_setting("application/config/name", String())));
+	title->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
+	_style_label(title, background_color, loading ? 28 : 48);
+	column->add_child(title);
+	title->set_owner(root);
 
 	if (loading) {
 		LoadingScreen *screen = static_cast<LoadingScreen *>(root);
+		const PackedStringArray tips = { "Edit this scene to change the look of the loading screen.", "Set your own tips in the Tips property of the root node." };
 		Label *tip = memnew(Label);
 		tip->set_name("Tip");
+		tip->set_text(tips[0]); // Preview in the editor; the screen shows the tips at runtime.
 		tip->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
 		tip->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
-		tip->set_custom_minimum_size(Size2(400, 0));
-		_style_label(tip, background_color);
+		tip->set_custom_minimum_size(Size2(480, 0));
+		_style_label(tip, background_color, 18);
 		column->add_child(tip);
 		tip->set_owner(root);
 
+		// A rounded bar: a faint track and a fill in the text color.
 		ProgressBar *bar = memnew(ProgressBar);
 		bar->set_name("ProgressBar");
-		bar->set_custom_minimum_size(Size2(400, 24));
+		bar->set_custom_minimum_size(Size2(480, 12));
 		bar->set_show_percentage(false);
+		bar->set_value(30); // Preview in the editor; the screen sets it at runtime.
+		Ref<StyleBoxFlat> track;
+		track.instantiate();
+		track->set_bg_color(Color(text_color.r, text_color.g, text_color.b, 0.15f));
+		track->set_corner_radius_all(6);
+		Ref<StyleBoxFlat> fill;
+		fill.instantiate();
+		fill->set_bg_color(text_color);
+		fill->set_corner_radius_all(6);
+		bar->add_theme_style_override(SNAME("background"), track);
+		bar->add_theme_style_override(SNAME("fill"), fill);
 		column->add_child(bar);
 		bar->set_owner(root);
 
 		Label *count = memnew(Label);
 		count->set_name("Count");
+		count->set_text("12 / 40"); // Preview in the editor; empty at runtime until the total is known.
 		count->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_CENTER);
-		_style_label(count, background_color);
+		_style_label(count, background_color, 16);
 		column->add_child(count);
 		count->set_owner(root);
 
 		screen->set_progress_bar(NodePath("Content/Column/ProgressBar"));
 		screen->set_tip_label(NodePath("Content/Column/Tip"));
 		screen->set_count_label(NodePath("Content/Column/Count"));
-		screen->set_tips(PackedStringArray({ "Edit this scene to change the look of the loading screen.", "Set your own tips in the Tips property of the root node." }));
+		screen->set_tips(tips);
 		screen->set_min_duration(0.5);
 	}
 
