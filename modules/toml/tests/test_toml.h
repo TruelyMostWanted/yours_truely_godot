@@ -42,6 +42,10 @@
 #include "tests/test_macros.h"
 #include "tests/test_utils.h"
 
+#ifdef TOOLS_ENABLED
+#include "../editor/toml_inspector_plugin.h"
+#endif
+
 namespace TestTOML {
 
 class TOMLTestEntry : public Resource {
@@ -620,5 +624,29 @@ TEST_CASE("[TOML] Resource API: dotted table paths and plain files") {
 	CHECK(loaded->get_value("", "title") == "Game");
 	DirAccess::remove_absolute(path);
 }
+
+#ifdef TOOLS_ENABLED
+TEST_CASE("[TOMLInspectorView] Tables in TOML terms") {
+	Ref<TOML> toml;
+	toml.instantiate();
+	REQUIRE(toml->parse("title = \"Game\"\n\n[server]\nport = 8080\n\n[[unit]]\nname = \"knight\"\n\n[[unit]]\nname = \"archer\"\n") == OK);
+	CHECK(TOMLInspectorView::get_counts(toml->get_data()) == "2 tables, 1 key");
+
+	const Dictionary root = toml->get_data();
+	DataFileTreeAdapter::Entry entry = DataFileTreeAdapter::make_entry("server", root["server"], false);
+	TOMLInspectorView::decorate_entry(entry);
+	CHECK(entry.type == "Table");
+	CHECK(entry.value == "1 key");
+	entry = DataFileTreeAdapter::make_entry("unit", root["unit"], false);
+	TOMLInspectorView::decorate_entry(entry);
+	CHECK(entry.type == "Array of Tables");
+	entry = DataFileTreeAdapter::make_entry("title", root["title"], false);
+	TOMLInspectorView::decorate_entry(entry);
+	CHECK(entry.type == "String");
+
+	CHECK_FALSE(TOMLInspectorView::is_array_of_tables(Array()));
+	CHECK_FALSE(TOMLInspectorView::is_array_of_tables(Array({ 1, 2 })));
+}
+#endif // TOOLS_ENABLED
 
 } // namespace TestTOML

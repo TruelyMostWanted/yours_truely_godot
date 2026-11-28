@@ -588,6 +588,22 @@ Zusätzliche Anzeigen und Knöpfe im Inspector (Vorschau, Tabelle, „Edit Regio
 `EditorInspectorPlugin`, das über `can_handle()` die Klasse wählt. Properties bleiben normale Properties mit Hints.
 Beispiele: [2.6](#26-editor-plugin-nur-bedienung).
 
+Eine Familie von Klassen (Abschnitt 2.7) bekommt **ein Inspector-Plugin pro Klasse** auf einer gemeinsamen View. Die
+View hält, was alle zeigen (Zusammenfassung, Parse-Status, Prüfung, Knöpfe zu den Docks); jede Klasse leitet ihre
+eigene View ab und zeigt, was zu ihr passt. Kein Plugin mit `if`-Ketten über die Klassen.
+
+**Truely** · `editor/inspector/data_file_inspector_plugin.h` (#435): `DataFileInspectorView` mit Virtuals für
+Zusammenfassung, Vorschau, Zeilen und Docks; `EditorInspectorPluginCSV` (Tabelle, Schema der Spalten), `...INI`
+(Sections), `...XML` (Elementbaum), `...JSON` (Wertebaum), in ihren Modulen `...YAML` (Dokumente) und `...TOML` (Tabellen).
+
+```cpp
+class EditorInspectorPluginINI : public EditorInspectorPluginDataFile {
+	GDCLASS(EditorInspectorPluginINI, EditorInspectorPluginDataFile);
+
+protected:
+	virtual DataFileInspectorView *_create_view(const Ref<Resource> &p_resource) const override;
+```
+
 ---
 
 ## 7. Editor-Docks

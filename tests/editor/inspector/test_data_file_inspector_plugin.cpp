@@ -34,10 +34,15 @@ TEST_FORCE_LINK(test_data_file_inspector_plugin)
 
 #ifdef TOOLS_ENABLED
 
+#include "core/io/data_field.h"
+#include "core/io/data_schema.h"
 #include "core/io/json.h"
 #include "core/io/xml_format.h"
 #include "core/os/os.h"
+#include "editor/inspector/csv_inspector_plugin.h"
 #include "editor/inspector/data_file_inspector_plugin.h"
+#include "editor/inspector/ini_inspector_plugin.h"
+#include "editor/inspector/xml_inspector_plugin.h"
 
 namespace TestDataFileInspectorPlugin {
 
@@ -250,6 +255,71 @@ TEST_CASE("[DataFileTreeAdapter] Big data: the first page and the preview stay c
 	const uint64_t tree_usec = OS::get_singleton()->get_ticks_usec() - start;
 	CHECK(page.size() == 200u);
 	MESSAGE(vformat("CSV preview widths of 20 000 rows: %d us; first tree page of 20 000 deep JSON objects: %d us.", csv_usec, tree_usec));
+}
+
+TEST_CASE("[DataFileInspectorView] Summary of a value") {
+	Dictionary dictionary;
+	dictionary["a"] = 1;
+	CHECK(DataFileInspectorView::get_value_counts(dictionary) == "Dictionary, 1 key");
+	CHECK(DataFileInspectorView::get_value_counts(Array({ 1, 2 })) == "Array, 2 items");
+	CHECK(DataFileInspectorView::get_value_counts(3) == "int");
+}
+
+TEST_CASE("[INIInspectorView] Sections and keys") {
+	Dictionary sections;
+	Dictionary player;
+	player["name"] = "knight";
+	player["hp"] = 100;
+	sections["player"] = player;
+	Dictionary global;
+	global["version"] = 2;
+	sections[""] = global;
+	CHECK(INIInspectorView::get_counts(sections) == "2 sections, 3 keys");
+	CHECK(INIInspectorView::get_counts(Dictionary()) == "0 sections, 0 keys");
+
+	// Top-level rows are sections; the keys without a section are listed as in the INI dock.
+	Adapter::Entry entry = Adapter::make_entry("", global, false);
+	INIInspectorView::decorate_entry(entry, true);
+	CHECK(entry.key == "(no section)");
+	CHECK(entry.type == "Section");
+	CHECK(entry.value == "1 key");
+	entry = Adapter::make_entry("player", player, false);
+	INIInspectorView::decorate_entry(entry, true);
+	CHECK(entry.key == "player");
+	// A Dictionary value inside a section stays a Dictionary.
+	entry = Adapter::make_entry("spawn", player, false);
+	INIInspectorView::decorate_entry(entry, false);
+	CHECK(entry.type == "Dictionary");
+}
+
+TEST_CASE("[XMLInspectorView] Root element") {
+	Ref<XML> xml;
+	xml.instantiate();
+	REQUIRE(xml->parse("<units version=\"1\"><unit id=\"knight\"/><unit id=\"archer\"/></units>") == OK);
+	CHECK(XMLInspectorView::get_counts(xml->get_data()) == "Root element <units>, 2 child nodes");
+	CHECK(XMLInspectorView::get_counts(Dictionary()) == "No root element");
+	const Array tree_value = XMLInspectorView::get_tree_value(xml->get_data());
+	REQUIRE(tree_value.size() == 1);
+	const LocalVector<Adapter::Entry> top = children_of(tree_value, true);
+	REQUIRE(top.size() == 1);
+	CHECK(top[0].key == "units");
+	CHECK(top[0].type == "Element");
+	CHECK(XMLInspectorView::get_tree_value(Dictionary()).is_empty());
+}
+
+TEST_CASE("[CSVInspectorView] Column titles name the schema field") {
+	Ref<DataSchema> schema;
+	schema.instantiate();
+	Ref<DataField> field;
+	field.instantiate();
+	field->set_field_name("hp");
+	field->set_value_type(Variant::INT);
+	field->set_required(true);
+	field->set_description("Hit points.");
+	schema->add_field(field);
+	CHECK(CSVInspectorView::get_column_tooltip("hp", schema) == "hp: int, required\nHit points.");
+	CHECK(CSVInspectorView::get_column_tooltip("speed", schema) == "speed: not in the data schema.");
+	CHECK(CSVInspectorView::get_column_tooltip("hp", Ref<DataSchema>()) == "hp");
 }
 
 } // namespace TestDataFileInspectorPlugin

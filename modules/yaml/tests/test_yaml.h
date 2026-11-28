@@ -42,6 +42,10 @@
 #include "tests/test_macros.h"
 #include "tests/test_utils.h"
 
+#ifdef TOOLS_ENABLED
+#include "../editor/yaml_inspector_plugin.h"
+#endif
+
 namespace TestYAML {
 
 class YAMLTestEntry : public Resource {
@@ -713,5 +717,31 @@ TEST_CASE("[YAML] Registered as text format FORMAT_YAML") {
 	check_yaml_settings(serializer->deserialize(text, ResourceTextSerializer::FORMAT_YAML));
 	check_yaml_settings(YAML::deserialize(text));
 }
+
+#ifdef TOOLS_ENABLED
+TEST_CASE("[YAMLInspectorView] Documents") {
+	Ref<YAML> yaml;
+	yaml.instantiate();
+	REQUIRE(yaml->parse("name: knight\nhp: 100\n") == OK);
+	// One document: the tree of `data`.
+	CHECK(YAMLInspectorView::get_tree_value(yaml.ptr()) == yaml->get_data());
+	DataFileTreeAdapter::Entry entry = DataFileTreeAdapter::make_entry("0", 1, false);
+	YAMLInspectorView::decorate_entry(entry, true, 1);
+	CHECK(entry.key == "0");
+
+	// Several documents: one top-level row per document.
+	REQUIRE(yaml->parse("name: knight\n---\nname: archer\n---\n- 1\n") == OK);
+	const Array documents = YAMLInspectorView::get_tree_value(yaml.ptr());
+	REQUIRE(documents.size() == 3);
+	CHECK(Dictionary(documents[1])["name"] == "archer");
+	entry = DataFileTreeAdapter::make_entry("2", documents[2], false);
+	YAMLInspectorView::decorate_entry(entry, true, 3);
+	CHECK(entry.key == "Document 3");
+	CHECK(entry.value == "1 item");
+	entry = DataFileTreeAdapter::make_entry("name", "knight", false);
+	YAMLInspectorView::decorate_entry(entry, false, 3);
+	CHECK(entry.key == "name");
+}
+#endif // TOOLS_ENABLED
 
 } // namespace TestYAML
