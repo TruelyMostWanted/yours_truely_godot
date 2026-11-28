@@ -86,6 +86,11 @@ static Ref<SerializerOptions> _dataset_tsv_options() {
 	return options;
 }
 
+// The text editor holds "\n" line breaks; a kept text read from a CRLF file has "\r\n".
+static String _dataset_lf(const String &p_text) {
+	return p_text.replace("\r\n", "\n");
+}
+
 Variant DatasetEditor::_get_resource_data(const Resource *p_resource) {
 	if (const JSON *json = Object::cast_to<JSON>(p_resource)) {
 		return json->get_data();
@@ -94,6 +99,16 @@ Variant DatasetEditor::_get_resource_data(const Resource *p_resource) {
 		return format->get_data();
 	}
 	return Variant();
+}
+
+String DatasetEditor::_get_error(const Resource *p_resource) {
+	if (const JSON *json = Object::cast_to<JSON>(p_resource)) {
+		return json->get_error_message();
+	}
+	if (const TextDataFormat *format = Object::cast_to<TextDataFormat>(p_resource)) {
+		return format->get_error_message();
+	}
+	return String();
 }
 
 bool DatasetEditor::_is_records(const Variant &p_value) {
@@ -110,6 +125,25 @@ bool DatasetEditor::_is_records(const Variant &p_value) {
 		has_field = has_field || !Dictionary(values[idx]).is_empty();
 	}
 	return has_field;
+}
+
+bool DatasetEditor::_has_shared_key(const Array &p_records) {
+	// At least two records and a key that every record has: a list of unrelated objects is no table to open on
+	// double-click ("Open in Dataset Dock" still opens it).
+	if (p_records.size() < 2) {
+		return false;
+	}
+	const Dictionary first = p_records[0];
+	for (const KeyValue<Variant, Variant> &kv : first) {
+		bool shared = true;
+		for (int idx = 1; idx < p_records.size() && shared; idx++) {
+			shared = Dictionary(p_records[idx]).has(kv.key);
+		}
+		if (shared) {
+			return true;
+		}
+	}
+	return false;
 }
 
 String DatasetEditor::value_to_text(const Variant &p_value, bool p_json) {
@@ -132,7 +166,7 @@ String DatasetEditor::value_to_text(const Variant &p_value, bool p_json) {
 			return p_value;
 		}
 		default:
-			return p_json ? JSON::stringify(p_value) : VariantUtilityFunctions::var_to_str(p_value);
+			return p_json ? JSON::stringify(p_value, "", false, true) : VariantUtilityFunctions::var_to_str(p_value);
 	}
 }
 
@@ -198,12 +232,10 @@ bool DatasetEditor::text_to_value(const String &p_text, Variant::Type p_type, bo
 Vector<DatasetEditor::Table> DatasetEditor::find_tables(const Resource *p_resource) {
 	Vector<Table> tables;
 	if (const CSV *data_csv = Object::cast_to<CSV>(p_resource)) {
-		if (!CSVTableEditor::is_translation_csv(data_csv)) {
-			Table table;
-			table.source = SOURCE_CSV;
-			table.row_count = data_csv->get_row_count();
-			tables.push_back(table);
-		}
+		Table table;
+		table.source = SOURCE_CSV;
+		table.row_count = data_csv->get_row_count();
+		tables.push_back(table);
 		return tables;
 	}
 	if (!Object::cast_to<JSON>(p_resource) && !Object::cast_to<TextDataFormat>(p_resource)) {
@@ -253,7 +285,8 @@ Vector<DatasetEditor::Table> DatasetEditor::find_tables(const Resource *p_resour
 		}
 		return tables;
 	}
-	// A YAML file with several documents: a table edit encodes `data` only, the further documents would be lost.
+	// YAML (a module, so called by name): with several documents, a table edit would encode the first document
+	// only and the others would be lost.
 	if (p_resource->has_method(SNAME("get_document_count")) && int(const_cast<Resource *>(p_resource)->call(SNAME("get_document_count"))) > 1) {
 		return tables;
 	}
@@ -292,103 +325,69 @@ bool DatasetEditor::can_open_automatically(const Object *p_object) {
 	if (path.is_resource_file() && FileAccess::exists(path) && FileAccess::get_size(path) > AUTO_OPEN_SIZE) {
 		return false;
 	}
-	return can_edit(resource);
-}
-
-DatasetEditor::OpenFile *DatasetEditor::_get_current_file() {
-	return current >= 0 && current < (int)open_files.size() ? &open_files[current] : nullptr;
-}
-
-Resource *DatasetEditor::_get_resource() const {
-	return current >= 0 && current < (int)open_files.size() ? open_files[current].resource.ptr() : nullptr;
-}
-
-bool DatasetEditor::_is_json() const {
-	return Object::cast_to<JSON>(_get_resource()) != nullptr;
-}
-
-TextEditorBase *DatasetEditor::_get_text_editor() const {
-	Resource *resource = _get_resource();
-	if (!resource || !ScriptEditor::get_singleton()) {
-		return nullptr;
+	if (const CSV *data_csv = Object::cast_to<CSV>(resource)) {
+		return !CSVTableEditor::is_translation_csv(data_csv);
 	}
-	return Object::cast_to<TextEditorBase>(ScriptEditor::get_singleton()->get_script_container()->get_resource_editor(Ref<Resource>(resource)));
+	const Variant file_data = _get_resource_data(resource);
+	for (const Table &table : find_tables(resource)) {
+		if (table.source == SOURCE_ELEMENTS && table.row_count >= 2) {
+			return true;
+		}
+		if (table.source == SOURCE_RECORDS && _has_shared_key(table.key.get_type() == Variant::NIL ? Array(file_data) : Array(Dictionary(file_data).get(table.key, Array())))) {
+			return true;
+		}
+	}
+	return false;
 }
 
-String DatasetEditor::_get_text() const {
-	const Resource *resource = _get_resource();
-	if (const JSON *json = Object::cast_to<JSON>(resource)) {
-		const String text = json->get_parsed_text();
-		return text.is_empty() ? JSON::stringify(json->get_data(), "\t", false) : text;
-	}
-	if (const TextDataFormat *format = Object::cast_to<TextDataFormat>(resource)) {
-		const String text = format->get_parsed_text();
-		return text.is_empty() ? format->encode_to_text() : text;
-	}
-	return String();
-}
-
-String DatasetEditor::_encode(const Variant &p_data) const {
-	const Resource *resource = _get_resource();
-	if (Object::cast_to<JSON>(resource)) {
-		return JSON::stringify(p_data, "\t", false);
-	}
-	const TextDataFormat *format = Object::cast_to<TextDataFormat>(resource);
-	ERR_FAIL_NULL_V(format, String());
-	// A new instance encodes the next data with the options of the file, so the file is only changed by the action.
-	Ref<TextDataFormat> encoder = Ref<TextDataFormat>(Object::cast_to<TextDataFormat>(ClassDB::instantiate(format->get_class())));
-	ERR_FAIL_COND_V(encoder.is_null(), String());
-	encoder->set_options(format->get_options());
-	encoder->set_data(p_data);
-	return encoder->encode_to_text();
-}
-
-Ref<DataField> DatasetEditor::_get_field(int p_column) const {
-	const Ref<DataSchema> schema = current >= 0 && current < (int)open_files.size() ? open_files[current].schema : Ref<DataSchema>();
-	if (schema.is_null() || csv.is_null()) {
-		return Ref<DataField>();
-	}
-	const PackedStringArray header = csv->get_header();
-	if (!header.is_empty()) {
-		return p_column < header.size() ? schema->get_field(header[p_column]) : Ref<DataField>();
-	}
-	const TypedArray<DataField> fields = schema->get_fields();
-	return p_column < fields.size() ? Ref<DataField>(fields[p_column]) : Ref<DataField>();
-}
-
-Dictionary DatasetEditor::_get_fields(int p_row) const {
-	if (source == SOURCE_ELEMENTS) {
-		return Dictionary(records[p_row]).get(XML::KEY_ATTRIBUTES, Dictionary());
-	}
-	return records[p_row];
-}
-
-void DatasetEditor::_set_fields(Array &r_records, int p_row, const Dictionary &p_fields) const {
-	if (source == SOURCE_ELEMENTS) {
-		Dictionary element = Dictionary(r_records[p_row]).duplicate();
-		element[XML::KEY_ATTRIBUTES] = p_fields;
-		r_records[p_row] = element;
-	} else {
-		r_records[p_row] = p_fields;
-	}
-}
-
-Variant::Type DatasetEditor::_get_column_type(int p_column) const {
-	if (source == SOURCE_ELEMENTS) {
-		return Variant::STRING; // XML attributes are text.
-	}
-	return p_column < (int)column_types.size() ? column_types[p_column] : Variant::NIL;
-}
-
-Variant DatasetEditor::_build_data(const Array &p_records, const PackedStringArray &p_names) const {
-	const Variant file_data = _get_resource_data(_get_resource());
-	switch (source) {
+bool DatasetEditor::has_empty_table(Source p_source, const Variant &p_key, const Variant &p_file_data) {
+	switch (p_source) {
 		case SOURCE_RECORDS: {
-			if (table_key.get_type() == Variant::NIL) {
+			const Variant value = p_key.get_type() == Variant::NIL ? p_file_data : (p_file_data.get_type() == Variant::DICTIONARY ? Dictionary(p_file_data).get(p_key, Variant()) : Variant());
+			return value.get_type() == Variant::ARRAY && Array(value).is_empty();
+		}
+		case SOURCE_SECTIONS:
+			return p_file_data.get_type() == Variant::DICTIONARY && Dictionary(p_file_data).is_empty();
+		case SOURCE_ELEMENTS:
+			// The root element is still there; its children of the tag are gone.
+			return p_file_data.get_type() == Variant::DICTIONARY && !Dictionary(p_file_data).is_empty();
+		default:
+			return false;
+	}
+}
+
+void DatasetEditor::read_rows(Source p_source, const Variant &p_key, const Variant &p_file_data, Array &r_records, PackedStringArray &r_names) {
+	r_records.clear();
+	r_names.clear();
+	if (p_source == SOURCE_RECORDS) {
+		const Variant value = p_key.get_type() == Variant::NIL ? p_file_data : (p_file_data.get_type() == Variant::DICTIONARY ? Dictionary(p_file_data).get(p_key, Array()) : Variant());
+		if (value.get_type() == Variant::ARRAY) {
+			r_records = value;
+		}
+	} else if (p_source == SOURCE_SECTIONS) {
+		const Dictionary sections = p_file_data;
+		for (const KeyValue<Variant, Variant> &kv : sections) {
+			r_names.push_back(kv.key);
+			r_records.push_back(kv.value);
+		}
+	} else if (p_source == SOURCE_ELEMENTS) {
+		const Array children = Dictionary(p_file_data).get(XML::KEY_CHILDREN, Array());
+		for (int idx = 0; idx < children.size(); idx++) {
+			if (children[idx].get_type() == Variant::DICTIONARY && Dictionary(children[idx]).get(XML::KEY_NAME, String()) == p_key) {
+				r_records.push_back(children[idx]);
+			}
+		}
+	}
+}
+
+Variant DatasetEditor::build_data(Source p_source, const Variant &p_key, const Variant &p_file_data, const Array &p_records, const PackedStringArray &p_names) {
+	switch (p_source) {
+		case SOURCE_RECORDS: {
+			if (p_key.get_type() == Variant::NIL) {
 				return p_records;
 			}
-			Dictionary root = Dictionary(file_data).duplicate();
-			root[table_key] = p_records;
+			Dictionary root = Dictionary(p_file_data).duplicate();
+			root[p_key] = p_records;
 			return root;
 		}
 		case SOURCE_SECTIONS: {
@@ -400,13 +399,13 @@ Variant DatasetEditor::_build_data(const Array &p_records, const PackedStringArr
 		}
 		case SOURCE_ELEMENTS: {
 			// The rows fill the places of the elements with the tag in order; new rows follow the last one.
-			Dictionary root = Dictionary(file_data).duplicate();
+			Dictionary root = Dictionary(p_file_data).duplicate();
 			const Array children = root.get(XML::KEY_CHILDREN, Array());
 			Array next_children;
 			int next = 0;
 			int insert_at = -1;
 			for (int idx = 0; idx < children.size(); idx++) {
-				const bool is_row = children[idx].get_type() == Variant::DICTIONARY && Dictionary(children[idx]).get(XML::KEY_NAME, String()) == table_key;
+				const bool is_row = children[idx].get_type() == Variant::DICTIONARY && Dictionary(children[idx]).get(XML::KEY_NAME, String()) == p_key;
 				if (!is_row) {
 					next_children.push_back(children[idx]);
 					continue;
@@ -426,8 +425,102 @@ Variant DatasetEditor::_build_data(const Array &p_records, const PackedStringArr
 			return root;
 		}
 		default:
-			return file_data;
+			return p_file_data;
 	}
+}
+
+Dictionary DatasetEditor::get_fields(Source p_source, const Variant &p_record) {
+	if (p_source == SOURCE_ELEMENTS) {
+		return Dictionary(p_record).get(XML::KEY_ATTRIBUTES, Dictionary());
+	}
+	return p_record;
+}
+
+String DatasetEditor::encode(const Resource *p_resource, const Variant &p_data) {
+	if (Object::cast_to<JSON>(p_resource)) {
+		// Full precision: numbers the edit did not touch keep their value.
+		return JSON::stringify(p_data, "\t", false, true);
+	}
+	const TextDataFormat *format = Object::cast_to<TextDataFormat>(p_resource);
+	ERR_FAIL_NULL_V(format, String());
+	// A new instance encodes the next data with the options of the file, so the file is only changed by the action.
+	// By class name: a script on the resource is not copied, a scripted subclass encodes like its class.
+	Ref<TextDataFormat> encoder = Ref<TextDataFormat>(Object::cast_to<TextDataFormat>(ClassDB::instantiate(format->get_class_name())));
+	ERR_FAIL_COND_V(encoder.is_null(), String());
+	encoder->set_options(format->get_options());
+	encoder->set_data(p_data);
+	return encoder->encode_to_text();
+}
+
+DatasetEditor::OpenFile *DatasetEditor::_get_current_file() {
+	return current >= 0 && current < (int)open_files.size() ? &open_files[current] : nullptr;
+}
+
+Resource *DatasetEditor::_get_resource() const {
+	return current >= 0 && current < (int)open_files.size() ? open_files[current].resource.ptr() : nullptr;
+}
+
+bool DatasetEditor::_is_json() const {
+	return Object::cast_to<JSON>(_get_resource()) != nullptr;
+}
+
+bool DatasetEditor::_is_unsaved(const OpenFile &p_file) const {
+	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
+	return undo_redo->has_history(p_file.history_id) && undo_redo->is_history_unsaved(p_file.history_id);
+}
+
+TextEditorBase *DatasetEditor::_get_text_editor() const {
+	Resource *resource = _get_resource();
+	if (!resource || !ScriptEditor::get_singleton()) {
+		return nullptr;
+	}
+	return Object::cast_to<TextEditorBase>(ScriptEditor::get_singleton()->get_script_container()->get_resource_editor(Ref<Resource>(resource)));
+}
+
+String DatasetEditor::_get_text() const {
+	const Resource *resource = _get_resource();
+	if (const JSON *json = Object::cast_to<JSON>(resource)) {
+		const String text = json->get_parsed_text();
+		return text.is_empty() ? encode(resource, json->get_data()) : text;
+	}
+	if (const TextDataFormat *format = Object::cast_to<TextDataFormat>(resource)) {
+		const String text = format->get_parsed_text();
+		return text.is_empty() ? format->encode_to_text() : text;
+	}
+	return String();
+}
+
+Ref<DataField> DatasetEditor::_get_field(int p_column) const {
+	const Ref<DataSchema> schema = current >= 0 && current < (int)open_files.size() ? open_files[current].schema : Ref<DataSchema>();
+	if (schema.is_null() || csv.is_null()) {
+		return Ref<DataField>();
+	}
+	const PackedStringArray header = csv->get_header();
+	if (!header.is_empty()) {
+		return p_column < header.size() ? schema->get_field(header[p_column]) : Ref<DataField>();
+	}
+	const TypedArray<DataField> fields = schema->get_fields();
+	return p_column < fields.size() ? Ref<DataField>(fields[p_column]) : Ref<DataField>();
+}
+
+Variant::Type DatasetEditor::_get_column_type(int p_column) const {
+	if (source == SOURCE_ELEMENTS) {
+		return Variant::STRING; // XML attributes are text.
+	}
+	const Variant::Type type = p_column < (int)column_types.size() ? column_types[p_column] : Variant::NIL;
+	return type == MIXED_TYPE ? Variant::NIL : type;
+}
+
+Variant DatasetEditor::_make_record(const Dictionary &p_fields) const {
+	if (source != SOURCE_ELEMENTS) {
+		return p_fields;
+	}
+	Dictionary element;
+	element[XML::KEY_NAME] = table_key;
+	element[XML::KEY_ATTRIBUTES] = p_fields;
+	element[XML::KEY_CHILDREN] = Array();
+	element[XML::KEY_TEXT] = String();
+	return element;
 }
 
 int DatasetEditor::_get_row_count() const {
@@ -449,7 +542,7 @@ String DatasetEditor::_get_cell_text(int p_row, int p_column) const {
 		const PackedStringArray cells = csv->get_row(p_row);
 		return p_column < cells.size() ? cells[p_column] : String();
 	}
-	const Dictionary fields = _get_fields(p_row);
+	const Dictionary fields = get_fields(source, records[p_row]);
 	const Variant &key = column_keys[p_column];
 	return fields.has(key) ? value_to_text(fields[key], _is_json()) : String();
 }
@@ -470,8 +563,8 @@ Array DatasetEditor::_get_cells(int p_row, int p_column, int p_rows, int p_colum
 }
 
 int DatasetEditor::_get_selected_column() const {
-	const TreeItem *item = tree->get_selected();
-	const int tree_column = tree->get_selected_column();
+	const TreeItem *item = table_view->get_selected();
+	const int tree_column = table_view->get_selected_column();
 	return item && tree_column >= 1 ? tree_column - 1 : -1;
 }
 
@@ -489,30 +582,26 @@ bool DatasetEditor::_can_edit() {
 	}
 	TextEditorBase *text_editor = _get_text_editor();
 	const TextEdit *text_edit = text_editor ? Object::cast_to<TextEdit>(text_editor->get_base_editor()) : nullptr;
-	String error;
 	if (source == SOURCE_CSV) {
 		if (text_edit) {
 			// Takes over text typed since the text editor's last idle parse, so the table edits the current text.
-			const bool in_sync = csv->get_parsed_text().is_empty() ? text_edit->get_version() == file->reloaded_version : text_edit->get_text() == csv->get_parsed_text();
+			const bool in_sync = csv->get_parsed_text().is_empty() ? text_edit->get_version() == file->reloaded_version : text_edit->get_text() == _dataset_lf(csv->get_parsed_text());
 			if (!in_sync) {
 				csv->parse(text_edit->get_text(), true);
 			}
 		}
-		error = csv->get_error_message();
-	} else {
+	} else if (text_edit && text_edit->get_text() != _dataset_lf(_get_text())) {
 		JSON *json = Object::cast_to<JSON>(file->resource.ptr());
 		TextDataFormat *format = Object::cast_to<TextDataFormat>(file->resource.ptr());
-		if (text_edit && text_edit->get_text() != _get_text()) {
-			if (json) {
-				json->parse(text_edit->get_text(), true);
-				json->emit_changed();
-			} else if (format) {
-				format->parse(text_edit->get_text(), true);
-			}
-			_build_view();
+		if (json) {
+			json->parse(text_edit->get_text(), true);
+			json->emit_changed();
+		} else if (format) {
+			format->parse(text_edit->get_text(), true);
 		}
-		error = json ? json->get_error_message() : (format ? format->get_error_message() : String());
+		_build_view();
 	}
+	const String error = _get_error(file->resource.ptr());
 	if (!error.is_empty() || source == SOURCE_NONE) {
 		status_label->set_text(vformat(TTR("Fix the text first: %s"), error));
 		return false;
@@ -521,14 +610,16 @@ bool DatasetEditor::_can_edit() {
 }
 
 void DatasetEditor::_commit_records(const String &p_action, const Array &p_records, const PackedStringArray &p_names) {
-	Resource *resource = _get_resource();
-	const String new_text = _encode(_build_data(p_records, p_names));
+	OpenFile *file = _get_current_file();
+	Resource *resource = file->resource.ptr();
+	const String new_text = encode(resource, build_data(source, table_key, _get_resource_data(resource), p_records, p_names));
 	const String old_text = _get_text();
 	if (new_text == old_text) {
 		_render();
 		return;
 	}
-	// The text is the state: undo gives back the exact text, with its comments and formatting.
+	// The text is the state: undo gives back the exact text, with its comments and formatting. Neighboring
+	// actions share their texts (copy-on-write), so each edit keeps about one copy of the file in memory.
 	_create_action(p_action);
 	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
 	undo_redo->add_do_method(resource, "parse", new_text, true);
@@ -540,6 +631,11 @@ void DatasetEditor::_commit_records(const String &p_action, const Array &p_recor
 	}
 	push_text = true;
 	undo_redo->commit_action();
+	if (!file->encoder_hint_shown) {
+		// Set after the commit: `changed` clears the status line only in the deferred update.
+		file->encoder_hint_shown = true;
+		EditorToaster::get_singleton()->popup_str(TTR("The Dataset dock writes the whole file in the format's own style: comments and formatting of the text can change. Undo restores the exact text."), EditorToaster::SEVERITY_INFO);
+	}
 }
 
 void DatasetEditor::_commit_cells(const String &p_action, int p_row, int p_column, const Array &p_cells) {
@@ -567,10 +663,23 @@ void DatasetEditor::_commit_cells(const String &p_action, int p_row, int p_colum
 
 	const bool json = _is_json();
 	Array next = records.duplicate();
+	PackedStringArray names = section_names;
 	bool refused = false;
-	for (int idx = 0; idx < p_cells.size() && p_row + idx < records.size(); idx++) {
+	for (int idx = 0; idx < p_cells.size(); idx++) {
+		const int row = p_row + idx;
+		if (row >= next.size()) {
+			// Like a CSV: pasted rows past the end become new rows.
+			next.push_back(_make_record(Dictionary()));
+			if (source == SOURCE_SECTIONS) {
+				String section_name = "new_section";
+				for (int number = 2; names.has(section_name); number++) {
+					section_name = vformat("new_section_%d", number);
+				}
+				names.push_back(section_name);
+			}
+		}
 		const PackedStringArray line = p_cells[idx];
-		Dictionary fields = _get_fields(p_row + idx).duplicate();
+		Dictionary fields = get_fields(source, next[row]).duplicate();
 		for (int cell = 0; cell < line.size() && p_column + cell < column_keys.size(); cell++) {
 			const Variant &key = column_keys[p_column + cell];
 			const bool present = fields.has(key);
@@ -584,7 +693,7 @@ void DatasetEditor::_commit_cells(const String &p_action, int p_row, int p_colum
 				continue;
 			}
 			if (!present && line[cell].is_empty()) {
-				continue;
+				continue; // Only keys that a record has (or that get a value) are written.
 			}
 			Variant value;
 			if (!text_to_value(line[cell], type, json, value)) {
@@ -594,13 +703,19 @@ void DatasetEditor::_commit_cells(const String &p_action, int p_row, int p_colum
 			}
 			fields[key] = value;
 		}
-		_set_fields(next, p_row + idx, fields);
+		if (source == SOURCE_ELEMENTS) {
+			Dictionary element = Dictionary(next[row]).duplicate();
+			element[XML::KEY_ATTRIBUTES] = fields;
+			next[row] = element;
+		} else {
+			next[row] = fields;
+		}
 	}
 	if (refused) {
 		// The tree still shows the refused text.
 		callable_mp(this, &DatasetEditor::_render).call_deferred();
 	}
-	_commit_records(p_action, next, section_names);
+	_commit_records(p_action, next, names);
 }
 
 void DatasetEditor::_add_row(bool p_insert) {
@@ -608,7 +723,7 @@ void DatasetEditor::_add_row(bool p_insert) {
 	if (!file || !_can_edit()) {
 		return;
 	}
-	const TreeItem *selected = tree->get_selected();
+	const TreeItem *selected = table_view->get_selected();
 	const int row = p_insert && selected ? (int)selected->get_metadata(0) : _get_row_count();
 	file->page = row / PAGE_SIZE;
 	if (source == SOURCE_CSV) {
@@ -640,27 +755,14 @@ void DatasetEditor::_add_row(bool p_insert) {
 	}
 	Array next = records.duplicate();
 	PackedStringArray names = section_names;
-	if (source == SOURCE_ELEMENTS) {
-		// A copy of the first element without its content: same tag, same kind of element.
-		Dictionary element = Dictionary(records[0]).duplicate(true);
-		element[XML::KEY_ATTRIBUTES] = fields;
-		if (element.has(XML::KEY_CHILDREN)) {
-			element[XML::KEY_CHILDREN] = Array();
+	if (source == SOURCE_SECTIONS) {
+		String section_name = "new_section";
+		for (int number = 2; names.has(section_name); number++) {
+			section_name = vformat("new_section_%d", number);
 		}
-		if (element.has(XML::KEY_TEXT)) {
-			element[XML::KEY_TEXT] = String();
-		}
-		next.insert(row, element);
-	} else {
-		if (source == SOURCE_SECTIONS) {
-			String section_name = "new_section";
-			for (int number = 2; names.has(section_name); number++) {
-				section_name = vformat("new_section_%d", number);
-			}
-			names.insert(row, section_name);
-		}
-		next.insert(row, fields);
+		names.insert(row, section_name);
 	}
+	next.insert(row, _make_record(fields));
 	_commit_records(source == SOURCE_SECTIONS ? TTR("Add Section") : TTR("Add Row"), next, names);
 }
 
@@ -669,7 +771,7 @@ void DatasetEditor::_delete_rows() {
 		return;
 	}
 	Vector<int> rows;
-	for (TreeItem *item = tree->get_next_selected(nullptr); item; item = tree->get_next_selected(item)) {
+	for (TreeItem *item = table_view->get_next_selected(nullptr); item; item = table_view->get_next_selected(item)) {
 		if (!rows.has((int)item->get_metadata(0))) {
 			rows.push_back((int)item->get_metadata(0));
 		}
@@ -747,11 +849,20 @@ void DatasetEditor::_insert_column() {
 		status_label->set_text(column_name.is_empty() ? TTR("Type a name for the column.") : vformat(TTR("The column \"%s\" exists already."), column_name));
 		return;
 	}
+	if (records.is_empty()) {
+		// No row to hold the field: the column is remembered for the next new row.
+		OpenFile *file = _get_current_file();
+		file->remembered_keys.insert(column, column_name);
+		file->remembered_types.insert(column, Variant::STRING);
+		rendered_hash = 0;
+		_update();
+		return;
+	}
 	// In every row, before the field of the selected column (or at the end); the order of the fields is kept.
 	const Variant before = column < column_keys.size() ? column_keys[column] : Variant();
 	Array next = records.duplicate();
 	for (int row = 0; row < records.size(); row++) {
-		const Dictionary fields = _get_fields(row);
+		const Dictionary fields = get_fields(source, records[row]);
 		Dictionary next_fields;
 		bool inserted = false;
 		for (const KeyValue<Variant, Variant> &kv : fields) {
@@ -764,7 +875,13 @@ void DatasetEditor::_insert_column() {
 		if (!inserted) {
 			next_fields[column_name] = String();
 		}
-		_set_fields(next, row, next_fields);
+		if (source == SOURCE_ELEMENTS) {
+			Dictionary element = Dictionary(next[row]).duplicate();
+			element[XML::KEY_ATTRIBUTES] = next_fields;
+			next[row] = element;
+		} else {
+			next[row] = next_fields;
+		}
 	}
 	_commit_records(TTR("Insert Column"), next, section_names);
 }
@@ -791,9 +908,15 @@ void DatasetEditor::_remove_column() {
 	const Variant key = column_keys[column];
 	Array next = records.duplicate();
 	for (int row = 0; row < records.size(); row++) {
-		Dictionary fields = _get_fields(row).duplicate();
+		Dictionary fields = get_fields(source, records[row]).duplicate();
 		fields.erase(key);
-		_set_fields(next, row, fields);
+		if (source == SOURCE_ELEMENTS) {
+			Dictionary element = Dictionary(next[row]).duplicate();
+			element[XML::KEY_ATTRIBUTES] = fields;
+			next[row] = element;
+		} else {
+			next[row] = fields;
+		}
 	}
 	_commit_records(TTR("Remove Column"), next, section_names);
 }
@@ -823,8 +946,8 @@ void DatasetEditor::_copy() {
 	int last_row = -1;
 	int first_column = INT_MAX;
 	int last_column = -1;
-	for (TreeItem *item = tree->get_next_selected(nullptr); item; item = tree->get_next_selected(item)) {
-		for (int column = 1; column < tree->get_columns(); column++) {
+	for (TreeItem *item = table_view->get_next_selected(nullptr); item; item = table_view->get_next_selected(item)) {
+		for (int column = 1; column < table_view->get_columns(); column++) {
 			if (item->is_selected(column)) {
 				const int row = (int)item->get_metadata(0);
 				first_row = MIN(first_row, row);
@@ -842,7 +965,7 @@ void DatasetEditor::_copy() {
 }
 
 void DatasetEditor::_paste() {
-	const TreeItem *item = tree->get_selected();
+	const TreeItem *item = table_view->get_selected();
 	const int column = _get_selected_column();
 	if (!item || column < 0) {
 		return;
@@ -919,13 +1042,13 @@ void DatasetEditor::_export(const String &p_path) {
 		text = CSV::stringify(rows);
 	} else if (source == SOURCE_SECTIONS) {
 		// Section name -> keys, like the INI file.
-		text = JSON::stringify(_build_data(records, section_names), "\t", false);
+		text = JSON::stringify(build_data(source, table_key, Variant(), records, section_names), "\t", false, true);
 	} else {
 		// One object per row; CSV cells stay text, the values of the other formats keep their types.
 		Array rows;
 		for (int row = 0; row < row_count; row++) {
 			if (source != SOURCE_CSV) {
-				rows.push_back(_get_fields(row));
+				rows.push_back(get_fields(source, records[row]));
 				continue;
 			}
 			Dictionary fields;
@@ -935,7 +1058,7 @@ void DatasetEditor::_export(const String &p_path) {
 			}
 			rows.push_back(fields);
 		}
-		text = JSON::stringify(rows, "\t", false);
+		text = JSON::stringify(rows, "\t", false, true);
 	}
 	Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE);
 	if (file.is_null()) {
@@ -973,6 +1096,47 @@ void DatasetEditor::_close_file(int p_index) {
 	_validate();
 }
 
+void DatasetEditor::_request_close(const Vector<int> &p_indices) {
+	pending_close.clear();
+	PackedStringArray unsaved;
+	for (int index : p_indices) {
+		ERR_CONTINUE(index < 0 || index >= (int)open_files.size());
+		pending_close.push_back(open_files[index].resource);
+		if (_is_unsaved(open_files[index])) {
+			unsaved.push_back(open_files[index].resource->get_path().get_file());
+		}
+	}
+	if (unsaved.is_empty()) {
+		_close_pending(false);
+		return;
+	}
+	close_dialog->set_text(vformat(TTR("Save changes to the following file(s) before closing?\n%s"), String("\n").join(unsaved)));
+	close_dialog->popup_centered();
+}
+
+void DatasetEditor::_close_pending(bool p_save) {
+	for (const Ref<Resource> &resource : pending_close) {
+		for (uint32_t idx = 0; idx < open_files.size(); idx++) {
+			if (open_files[idx].resource != resource) {
+				continue;
+			}
+			if (p_save && _is_unsaved(open_files[idx])) {
+				EditorNode::get_singleton()->save_resource(resource);
+			}
+			_close_file(idx);
+			break;
+		}
+	}
+	pending_close.clear();
+}
+
+void DatasetEditor::_close_dialog_action(const StringName &p_action) {
+	if (p_action == StringName("discard")) {
+		close_dialog->hide();
+		_close_pending(false);
+	}
+}
+
 void DatasetEditor::_build_view() {
 	csv.unref();
 	source = SOURCE_NONE;
@@ -981,13 +1145,25 @@ void DatasetEditor::_build_view() {
 	section_names.clear();
 	column_keys.clear();
 	column_types.clear();
-	table_option->clear();
+	table_picker->clear();
 	OpenFile *file = _get_current_file();
 	if (!file) {
-		table_option->hide();
+		table_picker->hide();
 		return;
 	}
-	const Vector<Table> tables = find_tables(file->resource.ptr());
+	const Variant file_data = _get_resource_data(file->resource.ptr());
+	Vector<Table> tables = find_tables(file->resource.ptr());
+	// A table whose last row was deleted stays open: rows can be added again and undo stays reachable.
+	bool shown = false;
+	for (const Table &table : tables) {
+		shown = shown || (table.source == file->source && table.key == file->table_key);
+	}
+	if (!shown && file->source != SOURCE_NONE && file->source != SOURCE_CSV && has_empty_table(file->source, file->table_key, file_data)) {
+		Table table;
+		table.source = file->source;
+		table.key = file->table_key;
+		tables.push_back(table);
+	}
 	int selected = 0;
 	for (int idx = 0; idx < tables.size(); idx++) {
 		const Table &table = tables[idx];
@@ -999,73 +1175,75 @@ void DatasetEditor::_build_view() {
 		} else {
 			label = table.source == SOURCE_SECTIONS ? TTR("Sections") : TTR("Rows");
 		}
-		table_option->add_item(vformat("%s (%d)", label, table.row_count));
-		table_option->set_item_metadata(idx, table.key);
-		if (table.key == file->table_key) {
+		table_picker->add_item(vformat("%s (%d)", label, table.row_count));
+		table_picker->set_item_metadata(idx, table.key);
+		if (table.source == file->source && table.key == file->table_key) {
 			selected = idx;
 		}
 	}
-	table_option->set_visible(tables.size() > 1);
+	table_picker->set_visible(tables.size() > 1);
 	if (tables.is_empty()) {
 		return;
 	}
-	table_option->select(selected);
+	table_picker->select(selected);
 	source = tables[selected].source;
 	table_key = tables[selected].key;
+	file->source = source;
 	file->table_key = table_key;
 	if (source == SOURCE_CSV) {
 		csv = Ref<CSV>(Object::cast_to<CSV>(file->resource.ptr()));
 		return;
 	}
 
-	const Variant file_data = _get_resource_data(file->resource.ptr());
-	if (source == SOURCE_RECORDS) {
-		records = table_key.get_type() == Variant::NIL ? Array(file_data) : Array(Dictionary(file_data).get(table_key, Array()));
-	} else if (source == SOURCE_SECTIONS) {
-		const Dictionary sections = file_data;
-		for (const KeyValue<Variant, Variant> &kv : sections) {
-			section_names.push_back(kv.key);
-			records.push_back(kv.value);
-		}
-	} else {
-		const Array children = Dictionary(file_data).get(XML::KEY_CHILDREN, Array());
-		for (int idx = 0; idx < children.size(); idx++) {
-			if (children[idx].get_type() == Variant::DICTIONARY && Dictionary(children[idx]).get(XML::KEY_NAME, String()) == table_key) {
-				records.push_back(children[idx]);
-			}
-		}
-	}
-	// The columns: every field name in first-seen order, typed by its first value.
+	read_rows(source, table_key, file_data, records, section_names);
+	// The columns: every field name in first-seen order, typed by its values. A row writes only its own fields.
 	Dictionary column_index;
 	for (int row = 0; row < records.size(); row++) {
-		const Dictionary fields = _get_fields(row);
+		const Dictionary fields = get_fields(source, records[row]);
 		for (const KeyValue<Variant, Variant> &kv : fields) {
+			const Variant::Type type = kv.value.get_type();
 			if (!column_index.has(kv.key)) {
 				column_index[kv.key] = column_keys.size();
 				column_keys.push_back(kv.key);
-				column_types.push_back(kv.value.get_type());
-			} else if (column_types[int(column_index[kv.key])] == Variant::NIL) {
-				column_types[int(column_index[kv.key])] = kv.value.get_type();
+				column_types.push_back(type);
+				continue;
 			}
+			Variant::Type &column_type = column_types[int(column_index[kv.key])];
+			if (column_type == Variant::NIL) {
+				column_type = type;
+			} else if (type != Variant::NIL && type != column_type) {
+				column_type = MIXED_TYPE;
+			}
+		}
+	}
+	if (records.is_empty()) {
+		column_keys = file->remembered_keys.duplicate();
+		for (int idx = 0; idx < file->remembered_types.size(); idx++) {
+			column_types.push_back((Variant::Type)file->remembered_types[idx]);
+		}
+	} else {
+		file->remembered_keys = column_keys.duplicate();
+		file->remembered_types.clear();
+		for (const Variant::Type type : column_types) {
+			file->remembered_types.push_back(type);
 		}
 	}
 }
 
-void DatasetEditor::_update_file_list() {
-	file_list->clear();
-	EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
+void DatasetEditor::_update_side_bar() {
+	side_bar->clear();
 	for (uint32_t idx = 0; idx < open_files.size(); idx++) {
 		const OpenFile &file = open_files[idx];
 		const String path = file.resource->get_path();
-		String title = path.is_empty() ? vformat(TTR("[unsaved %s]"), file.resource->get_class()) : path.get_file();
-		if (undo_redo->has_history(file.history_id) && undo_redo->is_history_unsaved(file.history_id)) {
-			title += "(*)";
+		String file_title = path.is_empty() ? vformat(TTR("[unsaved %s]"), file.resource->get_class()) : path.get_file();
+		if (_is_unsaved(file)) {
+			file_title += "(*)";
 		}
-		file_list->add_item(title, EditorNode::get_singleton()->get_object_icon(file.resource.ptr(), "File"));
-		file_list->set_item_tooltip(file_list->get_item_count() - 1, path);
+		side_bar->add_item(file_title, EditorNode::get_singleton()->get_object_icon(file.resource.ptr(), "File"));
+		side_bar->set_item_tooltip(side_bar->get_item_count() - 1, path);
 	}
 	if (current >= 0) {
-		file_list->select(current);
+		side_bar->select(current);
 	}
 }
 
@@ -1082,9 +1260,16 @@ void DatasetEditor::_queue_update() {
 	}
 }
 
+void DatasetEditor::_json_text_check() {
+	// JSON.parse() of the text editor emits no `changed`: the table catches up when the mouse comes back.
+	if (_is_json()) {
+		_queue_update();
+	}
+}
+
 void DatasetEditor::_update() {
 	update_queued = false;
-	_update_file_list();
+	_update_side_bar();
 	OpenFile *file = _get_current_file();
 	if (file) {
 		csv = Ref<CSV>(Object::cast_to<CSV>(file->resource.ptr()));
@@ -1093,9 +1278,8 @@ void DatasetEditor::_update() {
 		if (push_text || (csv.is_valid() && csv->get_parsed_text().is_empty())) {
 			TextEditorBase *text_editor = _get_text_editor();
 			const TextEdit *text_edit = text_editor ? Object::cast_to<TextEdit>(text_editor->get_base_editor()) : nullptr;
-			const String text = _get_text();
 			// Reloading the same text would parse it again, emit `changed` and queue the next update: a loop.
-			if (text_edit && text_edit->get_text() != text) {
+			if (text_edit && text_edit->get_text() != _dataset_lf(_get_text())) {
 				text_editor->reload_text();
 				file->reloaded_version = text_edit->get_version();
 			}
@@ -1105,28 +1289,30 @@ void DatasetEditor::_update() {
 	_build_view();
 
 	const bool has_table = source != SOURCE_NONE;
-	tree->set_visible(has_table);
+	table_view->set_visible(has_table);
 	empty_label->set_visible(!has_table);
-	values_menu->set_disabled(!has_table);
+	// Undo and Redo stay reachable while a file is open, also when its text can't be parsed.
+	values_menu->set_disabled(!file);
+	PopupMenu *values_popup = values_menu->get_popup();
+	for (int id : { VALUES_ADD_ROW, VALUES_INSERT_ROW, VALUES_DELETE_ROWS, VALUES_INSERT_COLUMN, VALUES_REMOVE_COLUMN }) {
+		values_popup->set_item_disabled(values_popup->get_item_index(id), !has_table);
+	}
+	table_menu->set_disabled(!has_table);
+	file_menu->set_disabled(!file);
 	schema_label->set_visible(source == SOURCE_CSV);
 	schema_picker->set_visible(source == SOURCE_CSV);
-	for (int id : { TABLE_SAVE, TABLE_EXPORT_CSV, TABLE_EXPORT_JSON, TABLE_OPEN_TEXT, TABLE_CLOSE, TABLE_CLOSE_ALL }) {
-		const bool needs_table = id == TABLE_EXPORT_CSV || id == TABLE_EXPORT_JSON;
-		table_menu->get_popup()->set_item_disabled(table_menu->get_popup()->get_item_index(id), needs_table ? !has_table : !file);
-	}
 	if (!file) {
-		empty_label->set_text(TTR("Open a CSV file, or a JSON, YAML, TOML, INI or XML file with table-shaped data: double-click it in the FileSystem dock, or use \"Open in Dataset\" in its context menu or in the Inspector."));
+		empty_label->set_text(TTR("Open a CSV file, or a JSON, YAML, TOML, INI or XML file with table-shaped data: double-click it in the FileSystem dock, or use \"Open in Dataset Dock\" in its context menu or in the Inspector."));
 		page_label->set_text(String());
 		previous_button->set_disabled(true);
 		next_button->set_disabled(true);
-		tree->clear();
+		table_view->clear();
 		rendered_hash = 0;
 		return;
 	}
 	if (!has_table) {
 		// A parse error leaves no data; the text editor shows where.
-		const Resource *resource = file->resource.ptr();
-		const String error = Object::cast_to<JSON>(resource) ? Object::cast_to<JSON>(resource)->get_error_message() : (Object::cast_to<TextDataFormat>(resource) ? Object::cast_to<TextDataFormat>(resource)->get_error_message() : String());
+		const String error = _get_error(file->resource.ptr());
 		empty_label->set_text(error.is_empty() ? TTR("This file has no table-shaped data: an array of dictionaries (JSON, YAML, TOML), INI sections, or XML elements with attributes under the root element.") : vformat(TTR("The text can't be parsed: %s"), error));
 		page_label->set_text(String());
 		previous_button->set_disabled(true);
@@ -1136,7 +1322,7 @@ void DatasetEditor::_update() {
 	}
 	schema_picker->set_edited_resource(file->schema);
 	// Rendered only when the data changed: a re-parse of the same text must not close an open cell editor.
-	const uint32_t view_hash = hash_murmur3_one_32(file->page, hash_murmur3_one_32(table_key.hash(), _get_resource_data(file->resource.ptr()).hash()));
+	const uint32_t view_hash = hash_murmur3_one_32(file->page, hash_murmur3_one_32(table_key.hash(), hash_murmur3_one_32(column_keys.hash(), _get_resource_data(file->resource.ptr()).hash())));
 	if (view_hash != rendered_hash) {
 		rendered_hash = view_hash;
 		_render();
@@ -1149,7 +1335,7 @@ void DatasetEditor::_update() {
 void DatasetEditor::_render() {
 	OpenFile *file = _get_current_file();
 	if (!file || source == SOURCE_NONE) {
-		tree->clear();
+		table_view->clear();
 		return;
 	}
 	updating = true;
@@ -1161,14 +1347,14 @@ void DatasetEditor::_render() {
 	const int last = MIN(first + PAGE_SIZE, row_count);
 	const bool json = _is_json();
 
-	if (tree->get_columns() != column_count + 1) {
-		tree->clear();
-		tree->set_columns(column_count + 1);
+	if (table_view->get_columns() != column_count + 1) {
+		table_view->clear();
+		table_view->set_columns(column_count + 1);
 	}
-	tree->set_column_title(0, source == SOURCE_SECTIONS ? TTR("Section") : String("#"));
-	tree->set_column_title_tooltip_text(0, source == SOURCE_SECTIONS ? TTR("Double-click to rename the section.") : String());
-	tree->set_column_expand(0, false);
-	tree->set_column_custom_minimum_width(0, (source == SOURCE_SECTIONS ? 140 : 60) * EDSCALE);
+	table_view->set_column_title(0, source == SOURCE_SECTIONS ? TTR("Section") : String("#"));
+	table_view->set_column_title_tooltip_text(0, source == SOURCE_SECTIONS ? TTR("Double-click to rename the section.") : String());
+	table_view->set_column_expand(0, false);
+	table_view->set_column_custom_minimum_width(0, (source == SOURCE_SECTIONS ? 140 : 60) * EDSCALE);
 	const PackedStringArray header = source == SOURCE_CSV ? csv->get_header() : PackedStringArray();
 	for (int column = 0; column < column_count; column++) {
 		String column_title;
@@ -1179,21 +1365,22 @@ void DatasetEditor::_render() {
 			tooltip = field.is_valid() ? vformat("%s\n%s", Variant::get_type_name(field->get_value_type()), field->get_description()).strip_edges() : String();
 		} else if (column < column_keys.size()) {
 			column_title = String(column_keys[column]);
-			tooltip = Variant::get_type_name(_get_column_type(column));
+			const Variant::Type type = column < (int)column_types.size() ? column_types[column] : Variant::NIL;
+			tooltip = type == MIXED_TYPE ? TTR("Mixed types") : (type == Variant::NIL ? TTR("Any type") : Variant::get_type_name(type));
 		}
-		tree->set_column_title(column + 1, column_title);
-		tree->set_column_title_tooltip_text(column + 1, tooltip);
-		tree->set_column_clip_content(column + 1, true);
+		table_view->set_column_title(column + 1, column_title);
+		table_view->set_column_title_tooltip_text(column + 1, tooltip);
+		table_view->set_column_clip_content(column + 1, true);
 	}
 	_update_column_widths();
 
-	TreeItem *root = tree->get_root() ? tree->get_root() : tree->create_item();
+	TreeItem *root = table_view->get_root() ? table_view->get_root() : table_view->create_item();
 	TreeItem *item = root->get_first_child();
 	const Color issue_color = get_theme_color(SNAME("error_color"), EditorStringName(Editor)) * Color(1, 1, 1, 0.35);
 	const Color missing_color = get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor)) * Color(1, 1, 1, 0.15);
 	for (int row = first; row < last; row++) {
 		if (!item) {
-			item = tree->create_item(root);
+			item = table_view->create_item(root);
 		}
 		item->set_metadata(0, row);
 		item->set_cell_mode(0, TreeItem::CELL_MODE_STRING);
@@ -1201,7 +1388,7 @@ void DatasetEditor::_render() {
 		item->set_selectable(0, source == SOURCE_SECTIONS);
 		item->set_editable(0, source == SOURCE_SECTIONS);
 		const PackedStringArray cells = source == SOURCE_CSV ? csv->get_row(row) : PackedStringArray();
-		const Dictionary fields = source == SOURCE_CSV ? Dictionary() : _get_fields(row);
+		const Dictionary fields = source == SOURCE_CSV ? Dictionary() : get_fields(source, records[row]);
 		for (int column = 0; column <= column_count; column++) {
 			const String *issue = cell_issues.getptr(_dataset_cell_key(row, column));
 			item->set_tooltip_text(column, issue ? *issue : String());
@@ -1301,8 +1488,8 @@ void DatasetEditor::_cell_edited() {
 	if (updating) {
 		return;
 	}
-	TreeItem *item = tree->get_edited();
-	const int tree_column = tree->get_edited_column();
+	TreeItem *item = table_view->get_edited();
+	const int tree_column = table_view->get_edited_column();
 	ERR_FAIL_COND(!item || tree_column < 0);
 	const int row = item->get_metadata(0);
 	if (tree_column == 0) {
@@ -1354,39 +1541,51 @@ void DatasetEditor::_values_menu_id_pressed(int p_id) {
 
 void DatasetEditor::_table_menu_id_pressed(int p_id) {
 	const Resource *resource = _get_resource();
+	if (!resource) {
+		return;
+	}
+	export_format = p_id;
+	const String extension = p_id == TABLE_EXPORT_CSV ? "csv" : "json";
+	export_dialog->clear_filters();
+	export_dialog->add_filter("*." + extension, p_id == TABLE_EXPORT_CSV ? TTR("CSV File") : TTR("JSON File"));
+	const String path = resource->get_path();
+	if (path.is_resource_file()) {
+		export_dialog->set_current_path(path.get_basename() + "_export." + extension);
+	}
+	export_dialog->set_title(p_id == TABLE_EXPORT_CSV ? TTR("Export as CSV") : TTR("Export as JSON"));
+	export_dialog->popup_file_dialog();
+}
+
+void DatasetEditor::_file_menu_id_pressed(int p_id) {
+	if (current < 0) {
+		return;
+	}
 	switch (p_id) {
-		case TABLE_SAVE:
+		case FILE_SAVE:
 			_save();
 			break;
-		case TABLE_EXPORT_CSV:
-		case TABLE_EXPORT_JSON: {
-			if (!resource) {
-				break;
-			}
-			export_format = p_id;
-			const String extension = p_id == TABLE_EXPORT_CSV ? "csv" : "json";
-			export_dialog->clear_filters();
-			export_dialog->add_filter("*." + extension, p_id == TABLE_EXPORT_CSV ? TTR("CSV File") : TTR("JSON File"));
-			const String path = resource->get_path();
-			if (path.is_resource_file()) {
-				export_dialog->set_current_path(path.get_basename() + "_export." + extension);
-			}
-			export_dialog->set_title(p_id == TABLE_EXPORT_CSV ? TTR("Export as CSV") : TTR("Export as JSON"));
-			export_dialog->popup_file_dialog();
-		} break;
-		case TABLE_OPEN_TEXT:
+		case FILE_OPEN_TEXT:
 			_open_text();
 			break;
-		case TABLE_CLOSE:
-			if (current >= 0) {
-				_close_file(current);
+		case FILE_SHOW_IN_FILESYSTEM: {
+			const String path = open_files[current].resource->get_path();
+			if (path.is_resource_file() && FileSystemDock::get_singleton()) {
+				FileSystemDock::get_singleton()->navigate_to_path(path);
 			}
+		} break;
+		case FILE_CLOSE:
+			_request_close({ current });
 			break;
-		case TABLE_CLOSE_ALL:
-			while (!open_files.is_empty()) {
-				_close_file(open_files.size() - 1);
+		case FILE_CLOSE_OTHERS:
+		case FILE_CLOSE_ALL: {
+			Vector<int> indices;
+			for (int idx = 0; idx < (int)open_files.size(); idx++) {
+				if (p_id == FILE_CLOSE_ALL || idx != current) {
+					indices.push_back(idx);
+				}
 			}
-			break;
+			_request_close(indices);
+		} break;
 	}
 }
 
@@ -1395,7 +1594,14 @@ void DatasetEditor::_table_selected(int p_index) {
 	if (!file) {
 		return;
 	}
-	file->table_key = table_option->get_item_metadata(p_index);
+	file->table_key = table_picker->get_item_metadata(p_index);
+	file->source = SOURCE_NONE; // The first table with the key.
+	for (const Table &table : find_tables(file->resource.ptr())) {
+		if (table.key == file->table_key) {
+			file->source = table.source;
+			break;
+		}
+	}
 	file->page = 0;
 	cell_issues.clear();
 	rendered_hash = 0;
@@ -1415,7 +1621,12 @@ void DatasetEditor::_file_selected(int p_index) {
 
 void DatasetEditor::_file_clicked(int p_index, const Vector2 &p_position, int p_mouse_button) {
 	if (p_mouse_button == (int)MouseButton::MIDDLE) {
-		_close_file(p_index);
+		_request_close({ p_index });
+	} else if (p_mouse_button == (int)MouseButton::RIGHT) {
+		_file_selected(p_index);
+		side_bar_menu->set_position(side_bar->get_screen_position() + p_position);
+		side_bar_menu->reset_size();
+		side_bar_menu->popup();
 	}
 }
 
@@ -1432,15 +1643,15 @@ void DatasetEditor::_resource_saved(Object *p_resource) {
 			resource_saved = true;
 			status_label->set_text(vformat(TTR("Saved \"%s\"."), open_files[idx].resource->get_path()));
 		}
-		_update_file_list();
+		_update_side_bar();
 	}
 }
 
 void DatasetEditor::_update_column_widths() {
 	// Readable columns: about seven fill the table, further columns scroll horizontally (#346).
-	const int width = MAX(int(120 * EDSCALE), int((tree->get_size().x - 80 * EDSCALE) / 7));
-	for (int column = 1; column < tree->get_columns(); column++) {
-		tree->set_column_custom_minimum_width(column, width);
+	const int width = MAX(int(120 * EDSCALE), int((table_view->get_size().x - 80 * EDSCALE) / 7));
+	for (int column = 1; column < table_view->get_columns(); column++) {
+		table_view->set_column_custom_minimum_width(column, width);
 	}
 }
 
@@ -1464,12 +1675,12 @@ void DatasetEditor::_schema_changed(const Ref<Resource> &p_schema) {
 void DatasetEditor::_tree_gui_input(const Ref<InputEvent> &p_event) {
 	if (p_event->is_action_pressed(SNAME("ui_copy"), false, true)) {
 		_copy();
-		tree->accept_event();
+		table_view->accept_event();
 		return;
 	}
 	if (p_event->is_action_pressed(SNAME("ui_paste"), false, true)) {
 		_paste();
-		tree->accept_event();
+		table_view->accept_event();
 		return;
 	}
 	const Ref<InputEventKey> key_event = p_event;
@@ -1478,22 +1689,22 @@ void DatasetEditor::_tree_gui_input(const Ref<InputEvent> &p_event) {
 	}
 	if (ED_IS_SHORTCUT("editor/save_scene", p_event)) {
 		_save();
-		tree->accept_event();
+		table_view->accept_event();
 	} else if (p_event->is_action_pressed(SNAME("ui_redo"), false, true)) {
 		// Before ui_undo: Ctrl+Shift+Z also matches Ctrl+Z without exact matching.
 		_undo_redo(true);
-		tree->accept_event();
+		table_view->accept_event();
 	} else if (p_event->is_action_pressed(SNAME("ui_undo"), false, true)) {
 		_undo_redo(false);
-		tree->accept_event();
+		table_view->accept_event();
 	} else if (key_event->get_keycode() == Key::KEY_DELETE) {
 		_delete_rows();
-		tree->accept_event();
+		table_view->accept_event();
 	}
 }
 
 void DatasetEditor::_file_moved(const String &p_old_file, const String &p_new_file) {
-	_update_file_list(); // The resources have their new paths.
+	_update_side_bar(); // The resources have their new paths (also for moved folders).
 }
 
 void DatasetEditor::_file_removed(const String &p_file) {
@@ -1504,11 +1715,22 @@ void DatasetEditor::_file_removed(const String &p_file) {
 	}
 }
 
+void DatasetEditor::_folder_removed(const String &p_folder) {
+	const String folder = p_folder.ends_with("/") ? p_folder : p_folder + "/";
+	for (int idx = (int)open_files.size() - 1; idx >= 0; idx--) {
+		if (open_files[idx].resource->get_path().begins_with(folder)) {
+			_close_file(idx);
+		}
+	}
+}
+
 void DatasetEditor::_notification(int p_what) {
 	if (p_what == NOTIFICATION_READY) {
 		if (FileSystemDock::get_singleton()) {
 			FileSystemDock::get_singleton()->connect(SNAME("files_moved"), callable_mp(this, &DatasetEditor::_file_moved));
+			FileSystemDock::get_singleton()->connect(SNAME("folder_moved"), callable_mp(this, &DatasetEditor::_file_moved));
 			FileSystemDock::get_singleton()->connect(SNAME("file_removed"), callable_mp(this, &DatasetEditor::_file_removed));
+			FileSystemDock::get_singleton()->connect(SNAME("folder_removed"), callable_mp(this, &DatasetEditor::_folder_removed));
 		}
 		EditorNode::get_singleton()->connect(SNAME("resource_saved"), callable_mp(this, &DatasetEditor::_resource_saved));
 	} else if (p_what == NOTIFICATION_THEME_CHANGED) {
@@ -1551,6 +1773,10 @@ void DatasetEditor::edit(const Ref<Resource> &p_resource) {
 	}
 	_update();
 	_validate();
+	const String path = p_resource->get_path();
+	if (path.is_resource_file() && FileAccess::exists(path) && FileAccess::get_size(path) > AUTO_OPEN_SIZE) {
+		status_label->set_text(vformat(TTR("Large file (%s): each edit encodes and parses the whole file and keeps a copy of the text for undo."), String::humanize_size(FileAccess::get_size(path))));
+	}
 }
 
 DatasetEditor::DatasetEditor() {
@@ -1566,12 +1792,13 @@ DatasetEditor::DatasetEditor() {
 	HSplitContainer *split = memnew(HSplitContainer);
 	add_child(split);
 
-	file_list = memnew(ItemList);
-	file_list->set_custom_minimum_size(Size2(160, 0) * EDSCALE);
-	file_list->set_tooltip_text(TTR("Open dataset files. Each file has its own undo history. Middle-click closes a file."));
-	file_list->connect(SceneStringName(item_selected), callable_mp(this, &DatasetEditor::_file_selected));
-	file_list->connect("item_clicked", callable_mp(this, &DatasetEditor::_file_clicked));
-	split->add_child(file_list);
+	side_bar = memnew(ItemList);
+	side_bar->set_custom_minimum_size(Size2(160, 0) * EDSCALE);
+	side_bar->set_allow_rmb_select(true);
+	side_bar->set_tooltip_text(TTR("Open dataset files. Each file has its own undo history. Middle-click closes a file, right-click shows more."));
+	side_bar->connect(SceneStringName(item_selected), callable_mp(this, &DatasetEditor::_file_selected));
+	side_bar->connect("item_clicked", callable_mp(this, &DatasetEditor::_file_clicked));
+	split->add_child(side_bar);
 
 	VBoxContainer *main_vbox = memnew(VBoxContainer);
 	main_vbox->set_h_size_flags(SIZE_EXPAND_FILL);
@@ -1579,6 +1806,25 @@ DatasetEditor::DatasetEditor() {
 
 	HBoxContainer *toolbar = memnew(HBoxContainer);
 	main_vbox->add_child(toolbar);
+
+	// File (Godot's menu for file actions), Values and Table (#420).
+	file_menu = memnew(MenuButton);
+	file_menu->set_text(TTR("File"));
+	file_menu->set_flat(false);
+	file_menu->set_theme_type_variation("FlatMenuButton");
+	side_bar_menu = memnew(PopupMenu);
+	add_child(side_bar_menu);
+	for (PopupMenu *popup : { file_menu->get_popup(), side_bar_menu }) {
+		popup->add_item(TTR("Save"), FILE_SAVE);
+		popup->add_item(TTR("Open as Text"), FILE_OPEN_TEXT);
+		popup->add_item(TTR("Show in FileSystem"), FILE_SHOW_IN_FILESYSTEM);
+		popup->add_separator();
+		popup->add_item(TTR("Close"), FILE_CLOSE);
+		popup->add_item(TTR("Close Others"), FILE_CLOSE_OTHERS);
+		popup->add_item(TTR("Close All"), FILE_CLOSE_ALL);
+		popup->connect(SceneStringName(id_pressed), callable_mp(this, &DatasetEditor::_file_menu_id_pressed));
+	}
+	toolbar->add_child(file_menu);
 
 	values_menu = memnew(MenuButton);
 	values_menu->set_text(TTR("Values"));
@@ -1596,6 +1842,7 @@ DatasetEditor::DatasetEditor() {
 	values_popup->set_item_tooltip(-1, TTR("Remove the column of the selected cell."));
 	values_popup->add_separator();
 	values_popup->add_item(TTR("Undo"), VALUES_UNDO);
+	values_popup->set_item_tooltip(-1, TTR("Undo the last edit of this file (Ctrl+Z in the table)."));
 	values_popup->add_item(TTR("Redo"), VALUES_REDO);
 	values_popup->connect(SceneStringName(id_pressed), callable_mp(this, &DatasetEditor::_values_menu_id_pressed));
 	toolbar->add_child(values_menu);
@@ -1604,24 +1851,16 @@ DatasetEditor::DatasetEditor() {
 	table_menu->set_text(TTR("Table"));
 	table_menu->set_flat(false);
 	table_menu->set_theme_type_variation("FlatMenuButton");
-	PopupMenu *table_popup = table_menu->get_popup();
-	table_popup->add_item(TTR("Save"), TABLE_SAVE);
-	table_popup->add_separator();
-	table_popup->add_item(TTR("Export as CSV..."), TABLE_EXPORT_CSV);
-	table_popup->add_item(TTR("Export as JSON..."), TABLE_EXPORT_JSON);
-	table_popup->add_separator();
-	table_popup->add_item(TTR("Open as Text"), TABLE_OPEN_TEXT);
-	table_popup->add_separator();
-	table_popup->add_item(TTR("Close File"), TABLE_CLOSE);
-	table_popup->add_item(TTR("Close All Files"), TABLE_CLOSE_ALL);
-	table_popup->connect(SceneStringName(id_pressed), callable_mp(this, &DatasetEditor::_table_menu_id_pressed));
+	table_menu->get_popup()->add_item(TTR("Export as CSV..."), TABLE_EXPORT_CSV);
+	table_menu->get_popup()->add_item(TTR("Export as JSON..."), TABLE_EXPORT_JSON);
+	table_menu->get_popup()->connect(SceneStringName(id_pressed), callable_mp(this, &DatasetEditor::_table_menu_id_pressed));
 	toolbar->add_child(table_menu);
 
-	table_option = memnew(OptionButton);
-	table_option->set_tooltip_text(TTR("The table of the file to show: an array of dictionaries under a top-level key, or the XML elements of one tag."));
-	table_option->connect(SceneStringName(item_selected), callable_mp(this, &DatasetEditor::_table_selected));
-	table_option->hide();
-	toolbar->add_child(table_option);
+	table_picker = memnew(OptionButton);
+	table_picker->set_tooltip_text(TTR("The table of the file to show: an array of dictionaries under a top-level key, or the XML elements of one tag."));
+	table_picker->connect(SceneStringName(item_selected), callable_mp(this, &DatasetEditor::_table_selected));
+	table_picker->hide();
+	toolbar->add_child(table_picker);
 
 	schema_label = memnew(Label(TTR("Schema:")));
 	toolbar->add_child(schema_label);
@@ -1644,18 +1883,17 @@ DatasetEditor::DatasetEditor() {
 	next_button->connect(SceneStringName(pressed), callable_mp(this, &DatasetEditor::_change_page).bind(1));
 	toolbar->add_child(next_button);
 
-	tree = memnew(Tree);
-	tree->set_v_size_flags(SIZE_EXPAND_FILL);
-	tree->set_hide_root(true);
-	tree->set_column_titles_visible(true);
-	tree->set_select_mode(Tree::SELECT_MULTI);
-	tree->connect("item_edited", callable_mp(this, &DatasetEditor::_cell_edited));
-	tree->connect(SceneStringName(gui_input), callable_mp(this, &DatasetEditor::_tree_gui_input));
-	// JSON.parse() of the text editor emits no `changed`: the table catches up when the mouse comes back.
-	tree->connect(SceneStringName(mouse_entered), callable_mp(this, &DatasetEditor::_queue_update));
-	tree->connect(SceneStringName(resized), callable_mp(this, &DatasetEditor::_update_column_widths));
-	tree->hide();
-	main_vbox->add_child(tree);
+	table_view = memnew(Tree);
+	table_view->set_v_size_flags(SIZE_EXPAND_FILL);
+	table_view->set_hide_root(true);
+	table_view->set_column_titles_visible(true);
+	table_view->set_select_mode(Tree::SELECT_MULTI);
+	table_view->connect("item_edited", callable_mp(this, &DatasetEditor::_cell_edited));
+	table_view->connect(SceneStringName(gui_input), callable_mp(this, &DatasetEditor::_tree_gui_input));
+	table_view->connect(SceneStringName(mouse_entered), callable_mp(this, &DatasetEditor::_json_text_check));
+	table_view->connect(SceneStringName(resized), callable_mp(this, &DatasetEditor::_update_column_widths));
+	table_view->hide();
+	main_vbox->add_child(table_view);
 
 	empty_label = memnew(Label);
 	empty_label->set_v_size_flags(SIZE_EXPAND_FILL);
@@ -1688,6 +1926,15 @@ DatasetEditor::DatasetEditor() {
 	column_dialog->connect(SceneStringName(confirmed), callable_mp(this, &DatasetEditor::_insert_column));
 	add_child(column_dialog);
 
+	// Like the script editor: unsaved changes are saved, discarded or the close is canceled.
+	close_dialog = memnew(ConfirmationDialog);
+	close_dialog->set_title(TTR("Unsaved Changes"));
+	close_dialog->set_ok_button_text(TTR("Save"));
+	close_dialog->add_button(TTR("Discard"), DisplayServer::get_singleton()->get_swap_cancel_ok(), "discard");
+	close_dialog->connect(SceneStringName(confirmed), callable_mp(this, &DatasetEditor::_close_pending).bind(true));
+	close_dialog->connect("custom_action", callable_mp(this, &DatasetEditor::_close_dialog_action));
+	add_child(close_dialog);
+
 	export_dialog = memnew(EditorFileDialog);
 	export_dialog->set_file_mode(FileDialog::FILE_MODE_SAVE_FILE);
 	export_dialog->set_access(FileDialog::ACCESS_RESOURCES);
@@ -1698,6 +1945,11 @@ DatasetEditor::DatasetEditor() {
 }
 
 DatasetEditor::~DatasetEditor() {
+	for (const OpenFile &file : open_files) {
+		if (file.resource.is_valid()) {
+			file.resource->disconnect_changed(callable_mp(this, &DatasetEditor::_resource_changed));
+		}
+	}
 	if (singleton == this) {
 		singleton = nullptr;
 	}
@@ -1715,19 +1967,22 @@ void EditorContextMenuPluginDataset::_open_text(const Dictionary &p_data) {
 void EditorContextMenuPluginDataset::_open_dataset(const Dictionary &p_data) {
 	const PackedStringArray selected = p_data.get("selected_files", PackedStringArray());
 	ERR_FAIL_COND(selected.size() != 1);
+	// Any table, also of INI files and translation CSVs: the item names the dock it opens.
 	const Ref<Resource> resource = ResourceLoader::load(selected[0]);
 	DatasetEditor *dataset_editor = DatasetEditor::get_singleton();
-	CSVTableEditor *table_editor = CSVTableEditor::get_singleton();
 	if (dataset_editor && DatasetEditor::can_edit(resource.ptr())) {
 		dataset_editor->edit(resource);
 		dataset_editor->make_visible();
-	} else if (table_editor && resource.is_valid() && CSVTableEditor::can_edit(resource.ptr())) {
-		// Translation CSVs: the localization table.
-		table_editor->edit(resource);
-		table_editor->make_visible();
-	} else {
-		EditorToaster::get_singleton()->popup_str(vformat(TTR("\"%s\" has no table-shaped data or can't be parsed."), selected[0].get_file()), EditorToaster::SEVERITY_WARNING);
+		return;
 	}
+	String message = vformat(TTR("\"%s\" has no table-shaped data."), selected[0].get_file());
+	const JSON *json = Object::cast_to<JSON>(resource.ptr());
+	const TextDataFormat *format = Object::cast_to<TextDataFormat>(resource.ptr());
+	const String error = json ? json->get_error_message() : (format ? format->get_error_message() : String());
+	if (resource.is_null() || !error.is_empty()) {
+		message = vformat(TTR("\"%s\" can't be parsed: %s"), selected[0].get_file(), error);
+	}
+	EditorToaster::get_singleton()->popup_str(message, EditorToaster::SEVERITY_WARNING);
 }
 
 void EditorContextMenuPluginDataset::get_options(const OptionsData &p_data) {
@@ -1743,7 +1998,7 @@ void EditorContextMenuPluginDataset::get_options(const OptionsData &p_data) {
 	}
 	Control *gui_base = EditorNode::get_singleton()->get_gui_base();
 	add_context_menu_item(TTR("Open as Text"), callable_mp(this, &EditorContextMenuPluginDataset::_open_text), gui_base->get_editor_theme_icon(SNAME("TextFile")));
-	add_context_menu_item(TTR("Open in Dataset"), callable_mp(this, &EditorContextMenuPluginDataset::_open_dataset), gui_base->get_editor_theme_icon(SNAME("Grid")));
+	add_context_menu_item(TTR("Open in Dataset Dock"), callable_mp(this, &EditorContextMenuPluginDataset::_open_dataset), gui_base->get_editor_theme_icon(SNAME("Grid")));
 }
 
 void DatasetEditorPlugin::edit(Object *p_object) {

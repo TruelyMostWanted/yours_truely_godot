@@ -1002,12 +1002,22 @@ void CSVTableEditor::_tree_gui_input(const Ref<InputEvent> &p_event) {
 }
 
 bool CSVTableEditor::is_translation_csv(const CSV *p_csv) {
-	// The header decides, not the importer: a data CSV with a Keep File or CSV Translation import has no translations to check.
+	// A file imported as translation is one.
+	const String path = p_csv->get_path();
+	if (path.is_resource_file() && FileAccess::exists(path + ".import")) {
+		Ref<ConfigFile> import_config;
+		import_config.instantiate();
+		if (import_config->load(path + ".import") == OK && String(import_config->get_value("remap", "importer", String())) == "csv_translation") {
+			return true;
+		}
+	}
+	// Otherwise the header decides: every column after the key column is a locale, a note (`_`) or `?context` /
+	// `?plural`. One other column ("hp") makes it a data CSV, also when another column looks like a locale ("id").
 	CSV::TranslationHeader translation_header;
 	Ref<DataValidation> header_issues;
 	header_issues.instantiate();
 	CSV::check_translation_header(p_csv->get_header(), translation_header, header_issues.ptr());
-	return translation_header.has_known_language;
+	return translation_header.has_known_language && translation_header.invalid_columns.is_empty() && translation_header.unknown_columns.is_empty();
 }
 
 bool CSVTableEditor::can_edit(const Object *p_object) {

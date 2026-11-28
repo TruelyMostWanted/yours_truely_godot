@@ -45,14 +45,15 @@ class Label;
 class LineEdit;
 class MenuButton;
 class OptionButton;
+class PopupMenu;
 class TextEditorBase;
 class Timer;
 class Tree;
 
-// Edits tabular data files in a bottom dock (#420): data CSVs (typed cells and issues from a DataSchema) and the
+// Edits tabular data files in a bottom dock (#420): CSVs (typed cells and issues from a DataSchema) and the
 // table-shaped data of the other formats (#438): arrays of dictionaries in JSON, YAML and TOML (at the root or
 // under a top-level key), INI sections, and the children of an XML root element with one tag (attributes as
-// columns). Translation CSVs and localization catalogs keep their own table (CSVTableEditor).
+// columns). Translation CSVs and localization catalogs open in the Localization Table (CSVTableEditor) by default.
 // A side bar lists the open files; each file has its own undo history. Only one page of rows has tree items,
 // so large files stay fast. Edits are shown in an open text editor of the same file right away.
 class DatasetEditor : public EditorDock {
@@ -77,7 +78,7 @@ public:
 	};
 
 	static constexpr int PAGE_SIZE = 500;
-	// Larger files open as text only on double-click; "Open in Dataset" opens them anyway (#420).
+	// Larger files open as text only on double-click; "Open in Dataset Dock" opens them anyway (#420).
 	static constexpr int64_t AUTO_OPEN_SIZE = 4 * 1024 * 1024;
 
 private:
@@ -92,24 +93,36 @@ private:
 	};
 
 	enum TableMenu {
-		TABLE_SAVE,
 		TABLE_EXPORT_CSV,
 		TABLE_EXPORT_JSON,
-		TABLE_OPEN_TEXT,
-		TABLE_CLOSE,
-		TABLE_CLOSE_ALL,
+	};
+
+	// Also the context menu of the side bar.
+	enum FileMenu {
+		FILE_SAVE,
+		FILE_OPEN_TEXT,
+		FILE_SHOW_IN_FILESYSTEM,
+		FILE_CLOSE,
+		FILE_CLOSE_OTHERS,
+		FILE_CLOSE_ALL,
 	};
 
 	// Below the scene and global histories (positive, 0) and the remote and invalid histories (-9, -99).
 	static constexpr int FIRST_HISTORY_ID = -1000;
+	// The column type of a column whose values have different types.
+	static constexpr Variant::Type MIXED_TYPE = Variant::VARIANT_MAX;
 
 	struct OpenFile {
 		Ref<Resource> resource;
 		int history_id = 0;
 		int page = 0;
+		Source source = SOURCE_NONE; // Of the shown table: kept when its last row is deleted.
 		Variant table_key; // Of the shown table, see Table.
+		Array remembered_keys; // Columns of the shown table, for new rows of an emptied table.
+		PackedInt32Array remembered_types;
 		Ref<DataSchema> schema; // CSV only.
 		uint32_t reloaded_version = UINT32_MAX; // Version of the text editor's text right after the dock reloaded it.
+		bool encoder_hint_shown = false;
 	};
 
 	static inline DatasetEditor *singleton = nullptr;
@@ -117,6 +130,7 @@ private:
 	LocalVector<OpenFile> open_files;
 	int current = -1;
 	int next_history_id = FIRST_HISTORY_ID;
+	Vector<Ref<Resource>> pending_close; // Files to close after the unsaved-changes dialog.
 
 	// The shown table, rebuilt by _update().
 	Ref<CSV> csv;
@@ -125,7 +139,7 @@ private:
 	Array records; // SOURCE_RECORDS, SOURCE_SECTIONS: field dictionaries; SOURCE_ELEMENTS: whole elements.
 	PackedStringArray section_names; // SOURCE_SECTIONS.
 	Array column_keys; // Field names in first-seen order (not SOURCE_CSV).
-	LocalVector<Variant::Type> column_types; // Type of the first value of each column (not SOURCE_CSV).
+	LocalVector<Variant::Type> column_types; // Type of the values of each column, MIXED_TYPE, or NIL (not SOURCE_CSV).
 	HashMap<int64_t, String> cell_issues; // (row << 32) | tree column -> messages.
 	uint32_t rendered_hash = 0;
 	bool resource_saved = false;
@@ -134,10 +148,12 @@ private:
 	bool push_text = false; // The dock changed the resource: show the change in its text editor.
 	int export_format = TABLE_EXPORT_CSV;
 
-	ItemList *file_list = nullptr;
+	ItemList *side_bar = nullptr;
+	PopupMenu *side_bar_menu = nullptr;
+	MenuButton *file_menu = nullptr;
 	MenuButton *values_menu = nullptr;
 	MenuButton *table_menu = nullptr;
-	OptionButton *table_option = nullptr;
+	OptionButton *table_picker = nullptr;
 	Label *schema_label = nullptr;
 	EditorResourcePicker *schema_picker = nullptr;
 	Button *previous_button = nullptr;
@@ -145,26 +161,27 @@ private:
 	Label *page_label = nullptr;
 	Label *status_label = nullptr;
 	Label *empty_label = nullptr;
-	Tree *tree = nullptr;
+	Tree *table_view = nullptr;
 	Timer *validate_timer = nullptr;
 	ConfirmationDialog *column_dialog = nullptr;
 	LineEdit *column_name_edit = nullptr;
+	ConfirmationDialog *close_dialog = nullptr;
 	EditorFileDialog *export_dialog = nullptr;
 
 	static Variant _get_resource_data(const Resource *p_resource);
 	static bool _is_records(const Variant &p_value);
+	static bool _has_shared_key(const Array &p_records);
+	static String _get_error(const Resource *p_resource);
 
 	OpenFile *_get_current_file();
 	Resource *_get_resource() const;
 	bool _is_json() const;
+	bool _is_unsaved(const OpenFile &p_file) const;
 	TextEditorBase *_get_text_editor() const;
 	String _get_text() const;
-	String _encode(const Variant &p_data) const;
 	Ref<DataField> _get_field(int p_column) const;
-	Dictionary _get_fields(int p_row) const;
-	void _set_fields(Array &r_records, int p_row, const Dictionary &p_fields) const;
 	Variant::Type _get_column_type(int p_column) const;
-	Variant _build_data(const Array &p_records, const PackedStringArray &p_names) const;
+	Variant _make_record(const Dictionary &p_fields) const;
 	int _get_row_count() const;
 	int _get_column_count() const;
 	String _get_cell_text(int p_row, int p_column) const;
@@ -187,17 +204,22 @@ private:
 	void _export(const String &p_path);
 	void _open_text();
 	void _close_file(int p_index);
+	void _request_close(const Vector<int> &p_indices);
+	void _close_pending(bool p_save);
+	void _close_dialog_action(const StringName &p_action);
 
 	void _build_view();
-	void _update_file_list();
+	void _update_side_bar();
 	void _resource_changed();
 	void _queue_update();
+	void _json_text_check();
 	void _update();
 	void _render();
 	void _validate();
 	void _cell_edited();
 	void _values_menu_id_pressed(int p_id);
 	void _table_menu_id_pressed(int p_id);
+	void _file_menu_id_pressed(int p_id);
 	void _table_selected(int p_index);
 	void _file_selected(int p_index);
 	void _file_clicked(int p_index, const Vector2 &p_position, int p_mouse_button);
@@ -208,18 +230,30 @@ private:
 	void _tree_gui_input(const Ref<InputEvent> &p_event);
 	void _file_moved(const String &p_old_file, const String &p_new_file);
 	void _file_removed(const String &p_file);
+	void _folder_removed(const String &p_folder);
 
 protected:
 	void _notification(int p_what);
 
 public:
 	static DatasetEditor *get_singleton() { return singleton; }
-	// The tables of a data file: a data CSV, or the table-shaped data of JSON, YAML, TOML, INI and XML.
+	// The tables of a data file: a CSV, or the table-shaped data of JSON, YAML, TOML, INI and XML.
 	static Vector<Table> find_tables(const Resource *p_resource);
+	// "Open in Dataset Dock": any file with a table, translation CSVs and INI files included.
 	static bool can_edit(const Object *p_object);
-	// Opened with the file on double-click: everything can_edit() takes except INI (the INI dock edits it) and
-	// files above AUTO_OPEN_SIZE.
+	// Opened with the file on double-click: data CSVs (not translation CSVs), arrays of at least two dictionaries
+	// that share a key, at least two XML elements of one tag; not INI (the INI dock edits it), not above AUTO_OPEN_SIZE.
 	static bool can_open_automatically(const Object *p_object);
+	// An emptied table: the place of a table of `p_source` and `p_key` exists but has no rows.
+	static bool has_empty_table(Source p_source, const Variant &p_key, const Variant &p_file_data);
+	// The rows of a table (records; INI: section names in `r_names`).
+	static void read_rows(Source p_source, const Variant &p_key, const Variant &p_file_data, Array &r_records, PackedStringArray &r_names);
+	// The file data with the rows of a table replaced; the rest of the data is kept.
+	static Variant build_data(Source p_source, const Variant &p_key, const Variant &p_file_data, const Array &p_records, const PackedStringArray &p_names);
+	// The fields of a row: the record itself, or the attributes of an XML element.
+	static Dictionary get_fields(Source p_source, const Variant &p_record);
+	// The text of `p_data` in the format of the file (JSON with full precision, others with the file's options).
+	static String encode(const Resource *p_resource, const Variant &p_data);
 	// The text of a cell: strings as they are, JSON numbers without ".0" when whole, other values as JSON
 	// (`p_json`) or Variant text.
 	static String value_to_text(const Variant &p_value, bool p_json);
@@ -234,7 +268,7 @@ public:
 	~DatasetEditor();
 };
 
-// "Open as Text" and "Open in Dataset" in the context menu of a data file in the FileSystem dock (#420).
+// "Open as Text" and "Open in Dataset Dock" in the context menu of a data file in the FileSystem dock (#420).
 class EditorContextMenuPluginDataset : public EditorContextMenuPlugin {
 	GDCLASS(EditorContextMenuPluginDataset, EditorContextMenuPlugin);
 

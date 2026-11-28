@@ -204,7 +204,7 @@ void EditorInspectorPluginLocalizationCatalog::parse_begin(Object *p_object) {
 	const Ref<LocalizationCatalog> catalog(Object::cast_to<LocalizationCatalog>(p_object));
 	VBoxContainer *box = memnew(VBoxContainer);
 
-	Button *table_button = memnew(Button(TTR("Open in Localization Table")));
+	Button *table_button = memnew(Button(TTR("Open in Localization Table Dock")));
 	table_button->set_tooltip_text(TTR("Edit the keys, locales and notes in the Localization Table dock."));
 	table_button->connect(SceneStringName(pressed), callable_mp_static(&EditorInspectorPluginLocalizationCatalog::_open_in_table).bind(catalog));
 	box->add_child(table_button);
