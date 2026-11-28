@@ -40,7 +40,7 @@
 #include "tests/test_utils.h"
 
 #ifdef TOOLS_ENABLED
-#include "../editor/sqlite_table_editor.h"
+#include "../editor/database_editor.h"
 #endif
 
 namespace TestSQLite {
@@ -439,7 +439,7 @@ TEST_CASE("[SQLite] Database files as resources") {
 }
 
 #ifdef TOOLS_ENABLED
-TEST_CASE("[SQLite] Table editor saves pending edits in one transaction") {
+TEST_CASE("[SQLite] Database dock saves pending edits in one transaction") {
 	const String db_path = _fresh_db_path("sqlite_table_editor.db");
 	Ref<SQLiteDatabase> db;
 	db.instantiate();
@@ -460,7 +460,7 @@ TEST_CASE("[SQLite] Table editor saves pending edits in one transaction") {
 	deleted_rows[Array{ 2 }] = true;
 	Dictionary new_row;
 	new_row["name"] = "d";
-	CHECK(SQLiteTableEditor::apply_changes(db, "items", id_key, Array{ changed_rows, deleted_rows, Array{ new_row } }, failed, message) == OK);
+	CHECK(DatabaseEditor::apply_changes(db, "items", id_key, Array{ changed_rows, deleted_rows, Array{ new_row } }, failed, message) == OK);
 	CHECK(failed.get_type() == Variant::NIL);
 	TypedArray<Dictionary> rows = db->query("SELECT id, name, price FROM items ORDER BY id;");
 	REQUIRE(rows.size() == 3);
@@ -477,7 +477,7 @@ TEST_CASE("[SQLite] Table editor saves pending edits in one transaction") {
 	rename_rows[Array{ 3 }] = rename;
 	Dictionary null_row;
 	null_row["name"] = Variant();
-	CHECK(SQLiteTableEditor::apply_changes(db, "items", id_key, Array{ rename_rows, Dictionary(), Array{ null_row } }, failed, message) != OK);
+	CHECK(DatabaseEditor::apply_changes(db, "items", id_key, Array{ rename_rows, Dictionary(), Array{ null_row } }, failed, message) != OK);
 	CHECK(failed == Variant(0));
 	CHECK(message.contains("NOT NULL"));
 	CHECK_FALSE(db->is_in_transaction());
@@ -489,7 +489,7 @@ TEST_CASE("[SQLite] Table editor saves pending edits in one transaction") {
 	const Vector<String> rowid_key = { "rowid" };
 	Dictionary deleted_note;
 	deleted_note[Array{ 2 }] = true;
-	CHECK(SQLiteTableEditor::apply_changes(db, "notes", rowid_key, Array{ Dictionary(), deleted_note, Array() }, failed, message) == OK);
+	CHECK(DatabaseEditor::apply_changes(db, "notes", rowid_key, Array{ Dictionary(), deleted_note, Array() }, failed, message) == OK);
 	CHECK(db->get_row_count("notes") == 1);
 
 	// WITHOUT ROWID tables use their primary key; a duplicate key fails.
@@ -500,13 +500,13 @@ TEST_CASE("[SQLite] Table editor saves pending edits in one transaction") {
 	new_value["value"] = "new";
 	Dictionary pair_rows;
 	pair_rows[Array{ "k", 1 }] = new_value;
-	CHECK(SQLiteTableEditor::apply_changes(db, "pairs", pair_key, Array{ pair_rows, Dictionary(), Array() }, failed, message) == OK);
+	CHECK(DatabaseEditor::apply_changes(db, "pairs", pair_key, Array{ pair_rows, Dictionary(), Array() }, failed, message) == OK);
 	rows = db->query("SELECT value FROM pairs;");
 	CHECK(Dictionary(rows[0])["value"] == Variant("new"));
 	Dictionary duplicate;
 	duplicate["a"] = "k";
 	duplicate["b"] = 1;
-	CHECK(SQLiteTableEditor::apply_changes(db, "pairs", pair_key, Array{ Dictionary(), Dictionary(), Array{ duplicate } }, failed, message) != OK);
+	CHECK(DatabaseEditor::apply_changes(db, "pairs", pair_key, Array{ Dictionary(), Dictionary(), Array{ duplicate } }, failed, message) != OK);
 	CHECK(message.contains("UNIQUE"));
 
 	// Rowid tables allow NULL in a primary key; the key still matches.
@@ -516,9 +516,52 @@ TEST_CASE("[SQLite] Table editor saves pending edits in one transaction") {
 	count_value["n"] = 2;
 	Dictionary tag_rows;
 	tag_rows[Array{ Variant() }] = count_value;
-	CHECK(SQLiteTableEditor::apply_changes(db, "tags", name_key, Array{ tag_rows, Dictionary(), Array() }, failed, message) == OK);
+	CHECK(DatabaseEditor::apply_changes(db, "tags", name_key, Array{ tag_rows, Dictionary(), Array() }, failed, message) == OK);
 	rows = db->query("SELECT n FROM tags;");
 	CHECK(int64_t(Dictionary(rows[0])["n"]) == 2);
+
+	db->close();
+	DirAccess::remove_absolute(db_path);
+}
+
+TEST_CASE("[SQLite] Database dock: keys, views and a save of several tables") {
+	const String db_path = _fresh_db_path("sqlite_database_dock.db");
+	Ref<SQLiteDatabase> db;
+	db.instantiate();
+	REQUIRE(db->open(db_path) == OK);
+	REQUIRE(db->execute("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL);"
+						"CREATE TABLE notes (text TEXT);"
+						"CREATE TABLE pairs (b INTEGER, a TEXT, PRIMARY KEY (a, b)) WITHOUT ROWID;"
+						"CREATE VIEW item_names AS SELECT name FROM items;"
+						"INSERT INTO items VALUES (1, 'a');") == OK);
+
+	// Primary key columns in key order; "rowid" without a primary key.
+	CHECK(DatabaseEditor::get_key_columns(db, "items") == Vector<String>{ "id" });
+	CHECK(DatabaseEditor::get_key_columns(db, "notes") == Vector<String>{ "rowid" });
+	const Vector<String> pair_key = { "a", "b" };
+	CHECK(DatabaseEditor::get_key_columns(db, "pairs") == pair_key);
+
+	// Views are listed apart from the tables.
+	CHECK(DatabaseEditor::get_view_names(db) == PackedStringArray{ "item_names" });
+	CHECK_FALSE(db->get_table_names().has("item_names"));
+
+	// Inside a transaction, apply_changes() leaves commit and rollback to the caller (Save of several tables).
+	Variant failed;
+	String message;
+	Dictionary note;
+	note["text"] = "kept until the rollback";
+	Dictionary bad_item;
+	bad_item["name"] = Variant(); // NOT NULL fails.
+	REQUIRE(db->begin_transaction() == OK);
+	CHECK(DatabaseEditor::apply_changes(db, "notes", Vector<String>{ "rowid" }, Array{ Dictionary(), Dictionary(), Array{ note } }, failed, message) == OK);
+	CHECK(db->is_in_transaction());
+	CHECK(DatabaseEditor::apply_changes(db, "items", Vector<String>{ "id" }, Array{ Dictionary(), Dictionary(), Array{ bad_item } }, failed, message) != OK);
+	CHECK(failed == Variant(0));
+	CHECK(message.contains("NOT NULL"));
+	CHECK(db->is_in_transaction());
+	REQUIRE(db->rollback() == OK);
+	CHECK(db->get_row_count("notes") == 0);
+	CHECK(db->get_row_count("items") == 1);
 
 	db->close();
 	DirAccess::remove_absolute(db_path);

@@ -31,11 +31,11 @@
 #include "sqlite_editor_plugin.h"
 
 #include "../sqlite_database.h"
-#include "sqlite_table_editor.h"
+#include "database_editor.h"
 
 #include "core/io/file_access.h"
 #include "core/object/callable_mp.h"
-#include "editor/editor_node.h"
+#include "editor/docks/editor_dock_manager.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
 #include "scene/gui/label.h"
@@ -106,7 +106,7 @@ void SQLiteTableOverview::_update() {
 		for (int tree_column = 0; tree_column < COLUMN_MAX; tree_column++) {
 			item->set_tooltip_text(tree_column, tooltip);
 		}
-		item->add_button(COLUMN_TABLE, edit_icon, BUTTON_EDIT, false, TTR("Edit the rows of the table."));
+		item->add_button(COLUMN_TABLE, edit_icon, BUTTON_EDIT, false, TTR("Edit the rows of the table in the Database dock."));
 	}
 	database->close();
 
@@ -125,15 +125,17 @@ void SQLiteTableOverview::_count_rows() {
 	}
 }
 
+void SQLiteTableOverview::_open_in_dock(const String &p_table) {
+	DatabaseEditor *database_editor = DatabaseEditor::get_singleton();
+	if (database_editor) {
+		database_editor->edit(path, p_table);
+		database_editor->make_visible();
+	}
+}
+
 void SQLiteTableOverview::_edit_table(TreeItem *p_item, int p_column, int p_id, MouseButton p_button) {
-	if (p_button == MouseButton::LEFT && p_id == BUTTON_EDIT && SQLiteTableEditor::get_singleton()) {
-		SQLiteTableEditor *table_editor = SQLiteTableEditor::get_singleton();
-		table_editor->edit(path, p_item->get_text(COLUMN_TABLE));
-		// Read the row counts again when the window closes: a save may have changed them.
-		const Callable refresh = callable_mp(this, &SQLiteTableOverview::_update);
-		if (!table_editor->is_connected(SceneStringName(visibility_changed), refresh)) {
-			table_editor->connect(SceneStringName(visibility_changed), refresh, CONNECT_ONE_SHOT);
-		}
+	if (p_button == MouseButton::LEFT && p_id == BUTTON_EDIT) {
+		_open_in_dock(p_item->get_text(COLUMN_TABLE));
 	}
 }
 
@@ -141,6 +143,7 @@ void SQLiteTableOverview::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_THEME_CHANGED: {
 			refresh_button->set_button_icon(get_editor_theme_icon(SNAME("Reload")));
+			open_button->set_button_icon(get_editor_theme_icon(SNAME("SQLiteDatabase")));
 			_update();
 		} break;
 	}
@@ -154,11 +157,16 @@ SQLiteTableOverview::SQLiteTableOverview(const String &p_path) {
 	summary_label->set_custom_minimum_size(Size2(100, 0) * EDSCALE);
 	add_child(summary_label);
 
+	HBoxContainer *button_row = memnew(HBoxContainer);
+	add_child(button_row);
+	open_button = memnew(Button(TTR("Open in Database")));
+	open_button->set_tooltip_text(TTR("Edit the tables and rows of the file in the Database dock."));
+	open_button->connect(SceneStringName(pressed), callable_mp(this, &SQLiteTableOverview::_open_in_dock).bind(String()));
+	button_row->add_child(open_button);
 	refresh_button = memnew(Button(TTR("Refresh")));
-	refresh_button->set_h_size_flags(SIZE_SHRINK_BEGIN);
 	refresh_button->set_tooltip_text(TTR("Read the tables of the file again."));
 	refresh_button->connect(SceneStringName(pressed), callable_mp(this, &SQLiteTableOverview::_update));
-	add_child(refresh_button);
+	button_row->add_child(refresh_button);
 
 	tree = memnew(Tree);
 	tree->set_columns(COLUMN_MAX);
@@ -202,10 +210,45 @@ void EditorInspectorPluginSQLite::parse_begin(Object *p_object) {
 
 // SQLiteEditorPlugin
 
+void SQLiteEditorPlugin::edit(Object *p_object) {
+	// The dock stays at the last database when something else is edited (ARCHITECTURE.md 7.3).
+	if (handles(p_object)) {
+		database_editor->edit(Object::cast_to<SQLiteDatabase>(p_object)->get_path());
+	}
+}
+
+bool SQLiteEditorPlugin::handles(Object *p_object) const {
+	// Double-click on a database file; a database without a file has no tables to edit.
+	const SQLiteDatabase *database = Object::cast_to<SQLiteDatabase>(p_object);
+	return database && !database->is_built_in() && ResourceFormatLoaderSQLite::is_database_path(database->get_path());
+}
+
+void SQLiteEditorPlugin::make_visible(bool p_visible) {
+	if (p_visible) {
+		database_editor->make_visible();
+	}
+}
+
+String SQLiteEditorPlugin::get_unsaved_status(const String &p_for_scene) const {
+	// The edits belong to database files, not to scenes: asked only when the editor quits.
+	if (!p_for_scene.is_empty()) {
+		return String();
+	}
+	const PackedStringArray paths = database_editor->get_unsaved_paths();
+	return paths.is_empty() ? String() : TTR("Save the pending edits of these databases before closing?") + "\n" + String("\n").join(paths);
+}
+
+void SQLiteEditorPlugin::save_external_data() {
+	database_editor->save_all();
+}
+
 SQLiteEditorPlugin::SQLiteEditorPlugin() {
 	Ref<EditorInspectorPluginSQLite> plugin;
 	plugin.instantiate();
 	add_inspector_plugin(plugin);
 
-	EditorNode::get_singleton()->get_gui_base()->add_child(memnew(SQLiteTableEditor));
+	database_editor = memnew(DatabaseEditor);
+	database_editor->set_custom_minimum_size(Size2(0, 250) * EDSCALE);
+	EditorDockManager::get_singleton()->add_dock(database_editor);
+	database_editor->close();
 }
