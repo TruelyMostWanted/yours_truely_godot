@@ -551,7 +551,7 @@ void SubtitlesDock::_commit_times(const String &p_action, int p_index, double p_
 
 void SubtitlesDock::_add_segment() {
 	ERR_FAIL_COND(subtitle.is_null());
-	const double start = _snap(MAX(0.0, playhead - _get_offset()), true, SPOT_SNAP_RADIUS, -1);
+	const double start = MAX(0.0, playhead - _get_offset());
 	_commit_segments(TTR("Add Subtitle Segment"), SubtitleEditorHelper::get_segments_with_segment_at(subtitle, start, start + NEW_DURATION), SubtitleEditorHelper::get_insert_index(subtitle, start));
 }
 
@@ -579,18 +579,15 @@ void SubtitlesDock::_spot(bool p_end) {
 	ERR_FAIL_COND(segment.is_null());
 	const double start = segment->get_start_time();
 	const double end = segment->get_end_time();
-	// Keys are pressed a little late: the time snaps to where speech starts or stops nearby.
 	if (!p_end) {
-		const double new_start = _snap(time, true, SPOT_SNAP_RADIUS, selected);
-		_commit_times(TTR("Set Subtitle Segment Start"), selected, new_start, end > new_start ? end : new_start + NEW_DURATION, start, end);
+		_commit_times(TTR("Set Subtitle Segment Start"), selected, time, end > time ? end : time + NEW_DURATION, start, end);
 		return;
 	}
-	const double new_end = _snap(time, false, SPOT_SNAP_RADIUS, selected);
-	if (new_end <= start) {
+	if (time <= start) {
 		status_label->set_text(TTR("The playhead is before the start of the selected segment."));
 		return;
 	}
-	_commit_times(TTR("Set Subtitle Segment End"), selected, start, new_end, start, end);
+	_commit_times(TTR("Set Subtitle Segment End"), selected, start, time, start, end);
 	// The next segment is the one to spot next.
 	if (selected + 1 < subtitle->get_segment_count()) {
 		_select(selected + 1);
@@ -1446,7 +1443,7 @@ SubtitlesDock::SubtitlesDock() {
 	timing_popup->add_separator();
 	timing_popup->add_check_item(TTR("Snap to Silence"), TIMING_SNAP);
 	timing_popup->set_item_checked(-1, snap);
-	timing_popup->set_item_tooltip(-1, TTR("Dragged edges and times set at the playhead snap to where speech starts or stops in the waveform, and to the edges of other segments. Hold Shift while dragging to place an edge freely."));
+	timing_popup->set_item_tooltip(-1, TTR("Dragged edges snap to where speech starts or stops in the waveform, and to the edges of other segments. Hold Shift while dragging to place an edge freely."));
 	timing_popup->connect(SceneStringName(id_pressed), callable_mp(this, &SubtitlesDock::_timing_menu_id_pressed));
 	toolbar->add_child(timing_menu);
 	toolbar->add_child(memnew(VSeparator));
@@ -1526,16 +1523,12 @@ SubtitlesDock::SubtitlesDock() {
 	tree->connect("item_edited", callable_mp(this, &SubtitlesDock::_tree_edited));
 	// Deferred: inspecting the segment rebuilds editors while the tree emits.
 	tree->connect("item_activated", callable_mp(this, &SubtitlesDock::_tree_activated), CONNECT_DEFERRED);
-	tree->set_h_size_flags(SIZE_EXPAND_FILL);
+	split->add_child(tree);
 
-	// The table with the validation problems beside it: clicking a problem jumps to its segment.
-	HSplitContainer *table_split = memnew(HSplitContainer);
-	table_split->set_v_size_flags(SIZE_EXPAND_FILL);
-	split->add_child(table_split);
-	table_split->add_child(tree);
+	// The validation problems beside timeline and table: clicking a problem jumps to its segment.
 	VBoxContainer *problem_vbox = memnew(VBoxContainer);
 	problem_vbox->set_custom_minimum_size(Size2(220, 0) * EDSCALE);
-	table_split->add_child(problem_vbox);
+	media_split->add_child(problem_vbox);
 	problem_header = memnew(Label(TTR("No problems")));
 	problem_header->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	problem_vbox->add_child(problem_header);

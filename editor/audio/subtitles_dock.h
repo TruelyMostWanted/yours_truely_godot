@@ -89,7 +89,6 @@ class SubtitlesDock : public EditorDock {
 	static constexpr double MIN_DURATION = 0.1;
 	static constexpr double NEW_DURATION = 2.0;
 	static constexpr double LEVEL_WINDOW = 0.01; // Seconds per entry of `levels`.
-	static constexpr double SPOT_SNAP_RADIUS = 0.25; // Seconds, for times set with the keyboard.
 	static constexpr real_t DRAG_SNAP_RADIUS = 8; // Pixels, for dragged edges.
 	static inline SubtitlesDock *singleton = nullptr;
 
