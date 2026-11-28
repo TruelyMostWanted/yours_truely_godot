@@ -242,6 +242,35 @@ bool EditorInspectorPluginSpriteSheet::can_handle(Object *p_object) {
 }
 ```
 
+### 2.7 Basisklasse einer Familie: nur der gemeinsame Lebenszyklus
+
+Behandeln Loader, Saver, Serializer und Editor mehrere Klassen gleich, bekommen sie eine abstrakte Basisklasse. Die
+Basis hält nur, was alle gleich tun (Lebenszyklus), nie ein gemeinsames Datenmodell: Form der Daten, API zum Bearbeiten,
+Inspector und Dock gehören der einzelnen Klasse. Neue Virtuals der Basis nur für den Lebenszyklus; alles Formatspezifische
+kommt in die Unterklasse.
+
+**Godot** · `core/object/script_language.h`: `Script` teilt Laden, Quelltext und Instanzen; jede Sprache hat ihre eigene
+API, der `ScriptEditor` bedient die ganze Familie.
+
+```cpp
+class Script : public Resource {
+	GDCLASS(Script, Resource);
+```
+
+**Truely** · `core/io/text_data_format.h` (#421, #434): `TextDataFormat` ist das Textdokument der Datenformate `CSV`,
+`INI`, `XML`, `TOML`, `YAML`: `parse()` mit behaltenem Text, Fehler mit Zeile/Spalte, `options`, `load()`/`save()`,
+`validate()`, Endungen, `changed`. `data` ist pro Klasse typisiert; bearbeitet wird über die API der Klasse
+(`CSV.set_cell()`, `INI.set_value()`, `XML.get_root()`, `TOML.get_value()`, `YAML.get_value()`). Die Inspector-Plugins
+sind pro Format (#435, Abschnitt 6.2), ebenso die Docks (INI-Dock, Dataset-Dock).
+
+```cpp
+class TextDataFormat : public Resource {
+	GDCLASS(TextDataFormat, Resource);
+	...
+	virtual Error _parse_data(const String &p_text, const Ref<SerializerOptions> &p_options, Variant &r_data, String &r_error, int &r_line, int &r_column);
+	virtual Error _encode_data(const Variant &p_data, const Ref<SerializerOptions> &p_options, String &r_text, String &r_error) const;
+```
+
 ---
 
 ## 3. Server als API-Endpunkte
@@ -729,7 +758,7 @@ passen bei Größenänderungen erneut an, bis der Nutzer selbst zoomt oder versc
 
 Gehört in den „Implementation plan“ des Feature-Issues, bevor die Umsetzung beginnt:
 
-1. **Klassenarten** (Abschnitt 2): Welche Teile sind Resource, Playback, Node, Server, Registry, Editor? Warum ist ein Node nötig?
+1. **Klassenarten** (Abschnitt 2): Welche Teile sind Resource, Playback, Node, Server, Registry, Editor? Warum ist ein Node nötig? Eine Basisklasse nur für den gemeinsamen Lebenszyklus (2.7).
 2. **Schichten** (Abschnitt 1): Abhängigkeiten nur nach unten; Editor-Teile hinter `TOOLS_ENABLED`; optionale Module geprüft.
 3. **Server-API** (Abschnitt 3): viele Instanzen → RID-Endpunkte; Threads und Web ohne Threads bedacht.
 4. **Heißer Pfad** (Abschnitt 4): Was läuft pro Frame? Daten in Arrays, keine `Variant`/`Dictionary`/Allokation; Messung geplant.

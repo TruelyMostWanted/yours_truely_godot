@@ -43,6 +43,9 @@ class DataSchema;
 // plain file returns them, and the static parse_string()/stringify() of every format stay available.
 // The text given to parse() can be kept (the editor does), so saving an unchanged file keeps comments and
 // formatting; any change of `data` drops the kept text.
+// Responsibility (#421, #434): the text document only — parse with kept text, errors with line/column, options,
+// load/save, validate, extensions. No data model shared by the formats: each class types `data` and has its own
+// editing API, inspector and dock. New virtuals here only for this lifecycle (truely/ARCHITECTURE.md 2.7).
 class TextDataFormat : public Resource {
 	GDCLASS(TextDataFormat, Resource);
 
