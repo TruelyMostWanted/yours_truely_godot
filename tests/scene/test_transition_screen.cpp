@@ -618,4 +618,33 @@ TEST_CASE("[SceneTree][TransitionScreen] Progress covers the scene and the prelo
 	database->clear();
 }
 
+TEST_CASE("[SceneTree][TransitionScreen] Ready-made templates are complete scenes") {
+	const Ref<PackedScene> splash_scene = TransitionScreen::create_template(TransitionScreen::TEMPLATE_SPLASH);
+	REQUIRE(splash_scene.is_valid());
+	SplashScreen *splash = Object::cast_to<SplashScreen>(splash_scene->instantiate());
+	REQUIRE(splash != nullptr);
+	CHECK(splash->get_node_or_null(NodePath("Background")) != nullptr);
+	CHECK(splash->get_node_or_null(NodePath("Content/Column")) != nullptr);
+	AnimationPlayer *splash_player = Object::cast_to<AnimationPlayer>(splash->get_node_or_null(splash->get_animation_player()));
+	REQUIRE(splash_player != nullptr);
+	CHECK(splash_player->has_animation(splash->get_intro_animation()));
+	CHECK(splash_player->has_animation(splash->get_outro_animation()));
+	memdelete(splash);
+
+	const Ref<PackedScene> loading_scene = TransitionScreen::create_template(TransitionScreen::TEMPLATE_LOADING);
+	REQUIRE(loading_scene.is_valid());
+	LoadingScreen *loading = Object::cast_to<LoadingScreen>(loading_scene->instantiate());
+	REQUIRE(loading != nullptr);
+	CHECK(Object::cast_to<ProgressBar>(loading->get_node_or_null(loading->get_progress_bar())) != nullptr);
+	CHECK(Object::cast_to<Label>(loading->get_node_or_null(loading->get_tip_label())) != nullptr);
+	CHECK(Object::cast_to<Label>(loading->get_node_or_null(loading->get_count_label())) != nullptr);
+	CHECK(loading->get_tips().size() > 0);
+	CHECK(loading->get_animation_player() == NodePath("AnimationPlayer"));
+	memdelete(loading);
+
+	ERR_PRINT_OFF;
+	CHECK(TransitionScreen::create_template(TransitionScreen::Template(7)).is_null());
+	ERR_PRINT_ON;
+}
+
 } // namespace TestTransitionScreen

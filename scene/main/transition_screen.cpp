@@ -605,6 +605,7 @@ void TransitionScreen::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_load_progress"), &TransitionScreen::get_load_progress);
 	ClassDB::bind_method(D_METHOD("get_fade"), &TransitionScreen::get_fade);
 	ClassDB::bind_method(D_METHOD("get_load_error"), &TransitionScreen::get_load_error);
+	ClassDB::bind_static_method("TransitionScreen", D_METHOD("create_template", "template"), &TransitionScreen::create_template);
 
 	GDVIRTUAL_BIND(_update_fade, "fade");
 
@@ -636,6 +637,9 @@ void TransitionScreen::_bind_methods() {
 	BIND_ENUM_CONSTANT(STATE_LOADED);
 	BIND_ENUM_CONSTANT(STATE_FADING_OUT);
 	BIND_ENUM_CONSTANT(STATE_COMPLETED);
+
+	BIND_ENUM_CONSTANT(TEMPLATE_SPLASH);
+	BIND_ENUM_CONSTANT(TEMPLATE_LOADING);
 }
 
 TransitionScreen::TransitionScreen() {

@@ -55,6 +55,11 @@ public:
 		STATE_COMPLETED,
 	};
 
+	enum Template {
+		TEMPLATE_SPLASH,
+		TEMPLATE_LOADING,
+	};
+
 private:
 	String next_scene;
 	double min_duration = 0.0;
@@ -150,6 +155,9 @@ public:
 	float get_fade() const;
 	Error get_load_error() const;
 
+	// A ready-made splash or loading screen scene (#440), built from the project settings (logo, background color).
+	static Ref<PackedScene> create_template(Template p_template);
+
 	// Backs `SceneTree::change_scene_with_transition()`.
 	static Error change_scene_with_transition(SceneTree *p_tree, const String &p_path, const Ref<PackedScene> &p_transition_scene);
 
@@ -210,3 +218,4 @@ public:
 };
 
 VARIANT_ENUM_CAST(TransitionScreen::State);
+VARIANT_ENUM_CAST(TransitionScreen::Template);

@@ -40,6 +40,25 @@
 				[/codeblocks]
 			</description>
 		</method>
+		<method name="create_template" qualifiers="static">
+			<return type="PackedScene" />
+			<param index="0" name="template" type="int" enum="TransitionScreen.Template" />
+			<description>
+				Returns a ready-made screen scene to start from, or [code]null[/code] if it cannot be built. The scene has a [ColorRect] [code]Background[/code] in the color of [code]application/boot_splash/bg_color[/code], the project logo ([code]application/boot_splash/image[/code], else [code]application/config/icon[/code], else the project name as a [Label]), and an [AnimationPlayer] with the animations [code]intro[/code] and [code]outro[/code] set as [member intro_animation] and [member outro_animation] (the background and the content fade).
+				[constant TEMPLATE_SPLASH] has a [SplashScreen] root. [constant TEMPLATE_LOADING] has a [LoadingScreen] root with a tip label, a [ProgressBar] and a count label, all set up.
+				In the editor, [b]Project &gt; Tools &gt; Create Splash Screen Scene...[/b] and [b]Create Loading Screen Scene...[/b] save these scenes to a file you choose and open them; a splash scene can be set as [member ProjectSettings.application/boot_splash/scene] right away.
+				[codeblocks]
+				[gdscript]
+				var scene = TransitionScreen.create_template(TransitionScreen.TEMPLATE_LOADING)
+				ResourceSaver.save(scene, "res://loading_screen.tscn")
+				[/gdscript]
+				[csharp]
+				var scene = TransitionScreen.CreateTemplate(TransitionScreen.Template.Loading);
+				ResourceSaver.Save(scene, "res://loading_screen.tscn");
+				[/csharp]
+				[/codeblocks]
+			</description>
+		</method>
 		<method name="finish">
 			<return type="void" />
 			<description>
@@ -166,6 +185,12 @@
 		</constant>
 		<constant name="STATE_COMPLETED" value="5" enum="State">
 			Done; the screen is freed at the end of the frame.
+		</constant>
+		<constant name="TEMPLATE_SPLASH" value="0" enum="Template">
+			A splash screen: [SplashScreen] root with the project logo.
+		</constant>
+		<constant name="TEMPLATE_LOADING" value="1" enum="Template">
+			A loading screen: [LoadingScreen] root with the logo, tips, a progress bar and a count label.
 		</constant>
 	</constants>
 </class>
