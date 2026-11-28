@@ -38,6 +38,7 @@
 #include "core/io/xml_format.h"
 #include "core/object/callable_mp.h"
 #include "editor/data/csv_table_editor.h"
+#include "editor/data/dataset_editor.h"
 #include "editor/data/ini_editor.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
@@ -343,7 +344,7 @@ void DataFileInspectorView::_update_csv() {
 	if (column_count > chars.size()) {
 		more.push_back(vformat(TTR("%d more columns"), column_count - chars.size()));
 	}
-	more_label->set_text(more.is_empty() ? String() : String(", ").join(more) + ". " + TTR("Open in Table to see all."));
+	more_label->set_text(more.is_empty() ? String() : String(", ").join(more) + ". " + TTR("Open in Dataset Dock to see all."));
 	more_label->set_visible(!more.is_empty());
 
 	const int row_height = (int)(font.is_valid() ? font->get_height(font_size) + get_theme_constant(SNAME("v_separation"), SNAME("Tree")) : 24 * EDSCALE);
@@ -459,14 +460,14 @@ void DataFileInspectorView::_update() {
 	}
 	summary_label->set_text(vformat("%s: %s", resource->get_class(), counts));
 
-	// Only plain file_data files open in the script editor (see ScriptEditorPlugin::handles()).
-	const String path = resource->get_path();
-	text_button->set_disabled(format.is_valid() ? !format->is_recognized_path(path) : path.get_extension().to_lower() != "json");
-	// INI files open in the INI dock (#424), CSV files in the CSV Table dock.
+	// One button to the dock that edits the file (#420): INI files in the INI dock (#424), table-shaped data in the
+	// Dataset dock, translation CSVs in the Localization Table dock. "Open as Text" is in the FileSystem context menu.
 	const bool ini = Object::cast_to<INI>(*resource) != nullptr;
-	table_button->set_visible(csv || ini);
-	table_button->set_text(ini ? TTR("Open in INI Dock") : TTR("Open in Table"));
-	table_button->set_tooltip_text(ini ? TTR("Edit the sections and keys in the INI dock.") : TTR("Edit the rows in the CSV Table dock."));
+	const bool localization = !ini && CSVTableEditor::can_edit(resource.ptr());
+	const bool dataset = !ini && !localization && DatasetEditor::can_edit(resource.ptr());
+	table_button->set_visible(ini || dataset || localization);
+	table_button->set_text(ini ? TTR("Open in INI Dock") : (dataset ? TTR("Open in Dataset Dock") : TTR("Open in Localization Table Dock")));
+	table_button->set_tooltip_text(ini ? TTR("Edit the sections and keys in the INI dock.") : (dataset ? TTR("Edit the rows in the Dataset dock.") : TTR("Edit the translations in the Localization Table dock.")));
 	search->set_visible(!csv);
 
 	if (csv) {
@@ -597,9 +598,15 @@ void DataFileInspectorView::_open_table() {
 		return;
 	}
 	CSVTableEditor *table_editor = CSVTableEditor::get_singleton();
-	if (table_editor) {
+	if (table_editor && CSVTableEditor::can_edit(resource.ptr())) {
 		table_editor->edit(resource);
 		table_editor->make_visible();
+		return;
+	}
+	DatasetEditor *dataset_editor = DatasetEditor::get_singleton();
+	if (dataset_editor && DatasetEditor::can_edit(resource.ptr())) {
+		dataset_editor->edit(resource);
+		dataset_editor->make_visible();
 	}
 }
 
@@ -646,13 +653,7 @@ DataFileInspectorView::DataFileInspectorView(const Ref<Resource> &p_resource) {
 	HBoxContainer *buttons = memnew(HBoxContainer);
 	add_child(buttons);
 
-	text_button = memnew(Button(TTR("Open as Text")));
-	text_button->set_tooltip_text(TTR("Open the file in the script editor."));
-	text_button->connect(SceneStringName(pressed), callable_mp(this, &DataFileInspectorView::_open_text).bind(0));
-	buttons->add_child(text_button);
-
-	table_button = memnew(Button(TTR("Open in Table")));
-	table_button->set_tooltip_text(TTR("Edit the rows in the CSV Table dock."));
+	table_button = memnew(Button(TTR("Open in Dataset Dock")));
 	table_button->connect(SceneStringName(pressed), callable_mp(this, &DataFileInspectorView::_open_table));
 	buttons->add_child(table_button);
 

@@ -77,7 +77,7 @@ public:
 
 // The inspector view of a data file (TextDataFormat or JSON): a summary with parse status and schema issues,
 // a read-only preview (CSV: the first rows as a table; other formats: a tree filled on expand, with search)
-// and buttons to open the file as text, in the CSV Table dock, or to validate it.
+// and buttons to open the file in its dock (Dataset, Localization Table or INI) or to validate it.
 class DataFileInspectorView : public VBoxContainer {
 	GDCLASS(DataFileInspectorView, VBoxContainer);
 
@@ -96,7 +96,6 @@ class DataFileInspectorView : public VBoxContainer {
 
 	Label *summary_label = nullptr;
 	Label *status_label = nullptr;
-	Button *text_button = nullptr;
 	Button *table_button = nullptr;
 	LineEdit *search = nullptr;
 	Timer *search_timer = nullptr;
