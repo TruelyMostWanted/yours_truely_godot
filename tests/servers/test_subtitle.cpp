@@ -390,6 +390,8 @@ TEST_CASE("[Subtitle] sync_times() maps two points linearly") {
 	ERR_PRINT_OFF;
 	subtitle->sync_times(5.0, 1.0, 5.0, 2.0);
 	subtitle->sync_times(11.0, 20.0, 51.0, 10.0);
+	subtitle->sync_times(11.0, Math::NaN, 51.0, 52.0);
+	subtitle->sync_times(11.0, 12.0, 51.0, Math::INF);
 	ERR_PRINT_ON;
 	CHECK(subtitle->get_segment(0)->get_start_time() == doctest::Approx(11.0));
 }
@@ -399,6 +401,10 @@ TEST_CASE("[Subtitle] split_segment() and merge_segments()") {
 	subtitle.instantiate();
 	Ref<SubtitleSegment> segment = make_segment(0.0, 4.0, "First line\nSecond line");
 	segment->set_speaker("Ann");
+	segment->set_kind(SubtitleSegment::KIND_NARRATION);
+	segment->set_placement(SubtitleSegment::PLACEMENT_TOP);
+	segment->set_translation_context("intro");
+	segment->set_off_screen(true);
 	subtitle->add_segment(segment);
 	subtitle->add_segment(make_segment(5.0, 6.0, "next"));
 
@@ -410,6 +416,10 @@ TEST_CASE("[Subtitle] split_segment() and merge_segments()") {
 	CHECK(subtitle->get_segment(1)->get_end_time() == 4.0);
 	CHECK(subtitle->get_segment(1)->get_text() == "Second line");
 	CHECK(subtitle->get_segment(1)->get_speaker() == StringName("Ann"));
+	CHECK(subtitle->get_segment(1)->get_kind() == SubtitleSegment::KIND_NARRATION);
+	CHECK(subtitle->get_segment(1)->get_placement() == SubtitleSegment::PLACEMENT_TOP);
+	CHECK(subtitle->get_segment(1)->get_translation_context() == StringName("intro"));
+	CHECK(subtitle->get_segment(1)->is_off_screen());
 	CHECK(subtitle->get_segment(1) != segment);
 
 	// One line: at the space nearest to the split; one word: all in the first part.
@@ -425,6 +435,7 @@ TEST_CASE("[Subtitle] split_segment() and merge_segments()") {
 	ERR_PRINT_OFF;
 	CHECK(subtitle->split_segment(0, 1.5) == -1); // At the end: not inside.
 	CHECK(subtitle->split_segment(99, 1.0) == -1);
+	CHECK(subtitle->split_segment(1, Math::NaN) == -1);
 	CHECK(subtitle->merge_segments(0, 1) == ERR_INVALID_PARAMETER);
 	CHECK(subtitle->merge_segments(6) == ERR_INVALID_PARAMETER);
 	ERR_PRINT_ON;
@@ -440,6 +451,18 @@ TEST_CASE("[Subtitle] split_segment() and merge_segments()") {
 	CHECK(subtitle->get_segment(1)->get_end_time() == 14.0);
 	CHECK(subtitle->get_segment(1)->get_text() == "next\none two three\nfour");
 	CHECK(subtitle->get_segment_count() == 4);
+
+	// Empty slots inside the range are dropped; out-of-order segments still give the earliest start and latest end.
+	TypedArray<SubtitleSegment> unordered;
+	unordered.push_back(make_segment(5.0, 6.0, "late"));
+	unordered.push_back(Ref<SubtitleSegment>());
+	unordered.push_back(make_segment(1.0, 7.0, "early"));
+	subtitle->set_segments(unordered);
+	CHECK(subtitle->merge_segments(0, 3) == OK);
+	REQUIRE(subtitle->get_segment_count() == 1);
+	CHECK(subtitle->get_segment(0)->get_start_time() == 1.0);
+	CHECK(subtitle->get_segment(0)->get_end_time() == 7.0);
+	CHECK(subtitle->get_segment(0)->get_text() == "late\nearly");
 }
 
 } // namespace TestSubtitle

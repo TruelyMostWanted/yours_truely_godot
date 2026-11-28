@@ -404,9 +404,10 @@ void Subtitle::shift_times(double p_seconds) {
 }
 
 void Subtitle::sync_times(double p_first_time, double p_first_target, double p_second_time, double p_second_target) {
+	ERR_FAIL_COND_MSG(!Math::is_finite(p_first_time) || !Math::is_finite(p_first_target) || !Math::is_finite(p_second_time) || !Math::is_finite(p_second_target), "The sync points must be finite numbers.");
 	ERR_FAIL_COND_MSG(p_second_time == p_first_time, "The two sync points need different times.");
 	const double scale = (p_second_target - p_first_target) / (p_second_time - p_first_time);
-	ERR_FAIL_COND_MSG(scale <= 0.0, "The sync points would reverse the order of the segments.");
+	ERR_FAIL_COND_MSG(!(scale > 0.0), "The sync points would reverse the order of the segments.");
 	for (const Ref<SubtitleSegment> &segment : segments) {
 		if (segment.is_valid()) {
 			segment->set_start_time(p_first_target + (segment->get_start_time() - p_first_time) * scale);
@@ -443,7 +444,7 @@ int Subtitle::split_segment(int p_index, double p_time) {
 	ERR_FAIL_COND_V(first.is_null(), -1);
 	const double start = first->get_start_time();
 	const double end = first->get_end_time();
-	ERR_FAIL_COND_V_MSG(p_time <= start || p_time >= end, -1, "The split time must be inside the segment.");
+	ERR_FAIL_COND_V_MSG(!(p_time > start && p_time < end), -1, "The split time must be inside the segment."); // Also rejects NaN.
 	// The second part keeps speaker, kind, placement and translation context.
 	Ref<SubtitleSegment> second = first->duplicate();
 	String first_text;

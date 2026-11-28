@@ -46,6 +46,8 @@ class ItemList;
 class Label;
 class LineEdit;
 class MenuButton;
+class OptionButton;
+class PopupMenu;
 class SpinBox;
 class Tree;
 class TreeItem;
@@ -76,6 +78,18 @@ class SubtitlesDock : public EditorDock {
 		TIMING_SPLIT,
 		TIMING_MERGE,
 		TIMING_SNAP,
+		// Only in the table's context menu.
+		TIMING_ADD,
+		TIMING_REMOVE,
+		TIMING_SET_START,
+		TIMING_SET_END,
+		TIMING_INSPECT,
+	};
+
+	enum ShiftScope {
+		SHIFT_ALL,
+		SHIFT_SELECTED,
+		SHIFT_FROM_SELECTED,
 	};
 
 	enum DragMode {
@@ -90,6 +104,7 @@ class SubtitlesDock : public EditorDock {
 	static constexpr double NEW_DURATION = 2.0;
 	static constexpr double LEVEL_WINDOW = 0.01; // Seconds per entry of `levels`.
 	static constexpr real_t DRAG_SNAP_RADIUS = 8; // Pixels, for dragged edges.
+	static constexpr uint64_t VIDEO_SCRUB_MSEC = 80; // At most one video seek per this time while scrubbing.
 	static inline SubtitlesDock *singleton = nullptr;
 
 	Ref<Subtitle> subtitle;
@@ -115,6 +130,11 @@ class SubtitlesDock : public EditorDock {
 	float level_threshold = 0.0f;
 	ObjectID levels_stream;
 	uint64_t levels_version = 0;
+	bool snap_line_visible = false; // Drawn while a dragged edge sits on a snap target.
+	double snap_line_time = 0.0; // In segment time.
+	uint64_t last_video_seek_msec = 0;
+	bool video_seek_pending = false;
+	Size2i video_size;
 
 	DragMode drag_mode = DRAG_NONE;
 	double drag_from_time = 0.0;
@@ -132,17 +152,26 @@ class SubtitlesDock : public EditorDock {
 	Button *spot_end_button = nullptr;
 	Button *save_button = nullptr;
 	Label *status_label = nullptr;
+	Button *split_button = nullptr;
+	Button *merge_button = nullptr;
+	Button *problems_button = nullptr;
 	MenuButton *timing_menu = nullptr;
+	PopupMenu *context_menu = nullptr;
+	Control *video_box = nullptr;
 	AspectRatioContainer *video_panel = nullptr;
 	VideoStreamPlayer *video_player = nullptr;
 	Label *video_text_label = nullptr;
+	Control *problem_box = nullptr;
 	Label *problem_header = nullptr;
 	ItemList *problem_view = nullptr;
 	ConfirmationDialog *shift_dialog = nullptr;
 	LineEdit *shift_edit = nullptr;
+	OptionButton *shift_scope = nullptr;
 	ConfirmationDialog *sync_dialog = nullptr;
 	SpinBox *sync_segments[2] = {};
 	LineEdit *sync_targets[2] = {};
+	Label *sync_current[2] = {};
+	Label *sync_factor_label = nullptr;
 	Control *timeline = nullptr;
 	HScrollBar *timeline_scroll = nullptr;
 	Tree *tree = nullptr;
@@ -170,7 +199,8 @@ class SubtitlesDock : public EditorDock {
 	void _select(int p_index, bool p_scroll_tree = true);
 	void _jump_to(int p_index);
 	void _update_problem_view();
-	void _problem_selected(int p_item);
+	void _problem_clicked(int p_item, const Vector2 &p_position, MouseButton p_button);
+	void _toggle_problems(bool p_visible);
 	void _update_video_text();
 
 	void _commit_segments(const String &p_action, const TypedArray<SubtitleSegment> &p_segments, int p_select);
@@ -186,6 +216,8 @@ class SubtitlesDock : public EditorDock {
 	void _shift_confirmed();
 	void _popup_sync();
 	void _sync_confirmed();
+	void _update_sync_preview();
+	void _warn_negative_starts(const Ref<Subtitle> &p_copy);
 	void _timing_menu_id_pressed(int p_id);
 	void _update_levels();
 	double _snap(double p_time, bool p_onset, double p_radius, int p_exclude);
@@ -196,6 +228,7 @@ class SubtitlesDock : public EditorDock {
 	void _stream_picked(const Ref<Resource> &p_stream);
 	void _set_stream(const Ref<Resource> &p_stream);
 	void _seek_video();
+	void _mute_toggled(bool p_muted);
 	void _preview_updated(ObjectID p_id);
 
 	void _timeline_draw();
@@ -205,6 +238,7 @@ class SubtitlesDock : public EditorDock {
 	void _tree_selected();
 	void _tree_edited();
 	void _tree_activated();
+	void _tree_mouse_selected(const Vector2 &p_position, MouseButton p_button);
 	void _file_removed(const String &p_file);
 	void _resources_reloaded(const Vector<String> &p_files);
 
