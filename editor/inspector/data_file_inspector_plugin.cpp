@@ -31,25 +31,26 @@
 #include "data_file_inspector_plugin.h"
 
 #include "core/core_string_names.h"
-#include "core/io/csv_format.h"
 #include "core/io/data_schema.h"
-#include "core/io/ini_format.h"
 #include "core/io/json.h"
+#include "core/io/text_data_format.h"
 #include "core/io/xml_format.h"
 #include "core/object/callable_mp.h"
-#include "editor/data/csv_table_editor.h"
 #include "editor/data/dataset_editor.h"
-#include "editor/data/ini_editor.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
 #include "editor/editor_undo_redo_manager.h"
 #include "editor/gui/create_dialog.h"
+#include "editor/inspector/csv_inspector_plugin.h"
+#include "editor/inspector/ini_inspector_plugin.h"
+#include "editor/inspector/xml_inspector_plugin.h"
 #include "editor/script/data_schema_lookup.h"
 #include "editor/script/script_editor_plugin.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
 #include "scene/gui/check_box.h"
+#include "scene/gui/flow_container.h"
 #include "scene/gui/item_list.h"
 #include "scene/gui/label.h"
 #include "scene/gui/line_edit.h"
@@ -164,11 +165,15 @@ void DataFileTreeAdapter::get_children(const Variant &p_value, bool p_xml, int p
 	}
 }
 
-static void _find_in(const Variant &p_value, bool p_xml, const String &p_query, int p_max, PackedInt32Array &r_path, Vector<PackedInt32Array> &r_paths) {
+static void _find_in(const Variant &p_value, bool p_xml, const String &p_query, int p_max, DataFileTreeAdapter::DecorateFunc p_decorate, const void *p_context, PackedInt32Array &r_path, Vector<PackedInt32Array> &r_paths) {
 	LocalVector<DataFileTreeAdapter::Entry> entries;
 	DataFileTreeAdapter::get_children(p_value, p_xml, 0, -1, entries);
+	const bool top_level = r_path.is_empty();
 	for (uint32_t i = 0; i < entries.size() && r_paths.size() < p_max; i++) {
-		const DataFileTreeAdapter::Entry &entry = entries[i];
+		DataFileTreeAdapter::Entry &entry = entries[i];
+		if (p_decorate) {
+			p_decorate(p_context, entry, top_level);
+		}
 		// Only scalar values: containers show their size, XML elements repeat their text and attributes.
 		const bool scalar = !entry.data.is_array() && entry.data.get_type() != Variant::DICTIONARY;
 		r_path.push_back(i);
@@ -176,17 +181,17 @@ static void _find_in(const Variant &p_value, bool p_xml, const String &p_query, 
 			r_paths.push_back(r_path);
 		}
 		if (entry.child_count > 0) {
-			_find_in(entry.data, p_xml, p_query, p_max, r_path, r_paths);
+			_find_in(entry.data, p_xml, p_query, p_max, p_decorate, p_context, r_path, r_paths);
 		}
 		r_path.resize(r_path.size() - 1);
 	}
 }
 
-Vector<PackedInt32Array> DataFileTreeAdapter::find(const Variant &p_root, bool p_xml, const String &p_query, int p_max) {
+Vector<PackedInt32Array> DataFileTreeAdapter::find(const Variant &p_root, bool p_xml, const String &p_query, int p_max, DecorateFunc p_decorate, const void *p_context) {
 	Vector<PackedInt32Array> paths;
 	if (!p_query.is_empty() && p_max > 0) {
 		PackedInt32Array path;
-		_find_in(p_root, p_xml, p_query, p_max, path, paths);
+		_find_in(p_root, p_xml, p_query, p_max, p_decorate, p_context, path, paths);
 	}
 	return paths;
 }
@@ -217,6 +222,10 @@ PackedInt32Array DataFileTreeAdapter::get_column_chars(const PackedStringArray &
 
 // DataFileInspectorView
 
+void DataFileInspectorView::_decorate_found(const void *p_context, DataFileTreeAdapter::Entry &r_entry, bool p_top_level) {
+	static_cast<const DataFileInspectorView *>(p_context)->decorate_row(r_entry, p_top_level);
+}
+
 String DataFileInspectorView::_get_parsed_text() const {
 	const Ref<JSON> json = resource;
 	if (json.is_valid()) {
@@ -227,14 +236,16 @@ String DataFileInspectorView::_get_parsed_text() const {
 }
 
 TreeItem *DataFileInspectorView::_create_item(TreeItem *p_parent, const DataFileTreeAdapter::Entry &p_entry, int p_index, bool p_lazy) {
+	DataFileTreeAdapter::Entry entry = p_entry;
+	decorate_row(entry, p_parent == tree->get_root());
 	TreeItem *item = tree->create_item(p_parent);
-	item->set_text(COLUMN_KEY, p_entry.key);
-	item->set_text(COLUMN_TYPE, p_entry.type);
-	item->set_text(COLUMN_VALUE, p_entry.value);
-	item->set_tooltip_text(COLUMN_VALUE, p_entry.value);
-	item->set_metadata(0, p_entry.data);
+	item->set_text(COLUMN_KEY, entry.key);
+	item->set_text(COLUMN_TYPE, entry.type);
+	item->set_text(COLUMN_VALUE, entry.value);
+	item->set_tooltip_text(COLUMN_VALUE, entry.value);
+	item->set_metadata(0, entry.data);
 	item->set_metadata(1, p_index);
-	if (p_lazy && p_entry.child_count > 0) {
+	if (p_lazy && entry.child_count > 0) {
 		tree->create_item(item)->set_metadata(1, PLACEHOLDER_INDEX);
 		item->set_collapsed(true);
 	}
@@ -296,59 +307,20 @@ void DataFileInspectorView::_restore(TreeItem *p_item, const HashSet<String> &p_
 	}
 }
 
-void DataFileInspectorView::_update_csv() {
-	const Ref<CSV> csv = resource;
-	const Array rows = csv->get_data();
-	const PackedStringArray header = csv->get_header();
-	const PackedInt32Array chars = DataFileTreeAdapter::get_column_chars(header, rows, PREVIEW_ROWS, PREVIEW_COLUMNS, MAX_CELL_CHARS);
-	const int row_count = MIN(rows.size(), PREVIEW_ROWS);
-	tree->clear();
+String DataFileInspectorView::get_summary_text(const Variant &p_data) const {
+	const DataFileTreeAdapter::Entry entry = DataFileTreeAdapter::make_entry(String(), p_data, false);
+	return entry.data.is_array() || entry.data.get_type() == Variant::DICTIONARY ? entry.type + ", " + entry.value : entry.type;
+}
 
+int DataFileInspectorView::_get_row_height() const {
 	const Ref<Font> font = get_theme_font(SceneStringName(font), SNAME("Tree"));
 	const int font_size = get_theme_font_size(SceneStringName(font_size), SNAME("Tree"));
-	const real_t char_width = font.is_valid() ? font->get_char_size('0', font_size).width : 8 * EDSCALE;
-	const int padding = (int)(16 * EDSCALE);
+	return (int)(font.is_valid() ? font->get_height(font_size) + get_theme_constant(SNAME("v_separation"), SNAME("Tree")) : 24 * EDSCALE);
+}
 
-	tree->set_columns((int)chars.size() + 1);
-	tree->set_hide_folding(true);
-	tree->set_column_title(0, "#");
-	tree->set_column_expand(0, false);
-	tree->set_column_custom_minimum_width(0, (int)(itos(MAX(row_count, 1)).length() * char_width) + padding);
-	for (int column = 0; column < chars.size(); column++) {
-		const int tree_column = column + 1;
-		tree->set_column_title(tree_column, column < header.size() ? header[column] : itos(tree_column));
-		tree->set_column_title_alignment(tree_column, HORIZONTAL_ALIGNMENT_LEFT);
-		tree->set_column_expand(tree_column, false);
-		tree->set_column_clip_content(tree_column, true);
-		tree->set_column_custom_minimum_width(tree_column, (int)(MAX(chars[column], 2) * char_width) + padding);
-	}
-
-	TreeItem *root = tree->create_item();
-	const Color dim = get_theme_color(SNAME("font_disabled_color"), EditorStringName(Editor));
-	for (int i = 0; i < row_count; i++) {
-		TreeItem *item = tree->create_item(root);
-		item->set_text(0, itos(i + 1));
-		item->set_custom_color(0, dim);
-		const PackedStringArray cells = rows[i];
-		for (int column = 0; column < MIN(cells.size(), chars.size()); column++) {
-			item->set_text(column + 1, cells[column]);
-			item->set_tooltip_text(column + 1, cells[column]);
-		}
-	}
-
-	PackedStringArray more;
-	if (rows.size() > row_count) {
-		more.push_back(vformat(TTR("%d more rows"), rows.size() - row_count));
-	}
-	const int column_count = csv->get_column_count();
-	if (column_count > chars.size()) {
-		more.push_back(vformat(TTR("%d more columns"), column_count - chars.size()));
-	}
-	more_label->set_text(more.is_empty() ? String() : String(", ").join(more) + ". " + TTR("Open in Dataset Dock to see all."));
-	more_label->set_visible(!more.is_empty());
-
-	const int row_height = (int)(font.is_valid() ? font->get_height(font_size) + get_theme_constant(SNAME("v_separation"), SNAME("Tree")) : 24 * EDSCALE);
-	tree->set_custom_minimum_size(Size2(0, (MIN(row_count, 12) + 2) * row_height));
+void DataFileInspectorView::_update_preview(const Variant &p_data) {
+	tree_value = get_tree_value(p_data);
+	_update_tree();
 }
 
 void DataFileInspectorView::_update_tree() {
@@ -367,14 +339,14 @@ void DataFileInspectorView::_update_tree() {
 	tree->set_column_expand_ratio(COLUMN_VALUE, 2);
 
 	TreeItem *root = tree->create_item();
-	root->set_metadata(0, root_value);
+	root->set_metadata(0, tree_value);
 	const String query = search->get_text().strip_edges();
 	if (query.is_empty()) {
 		_fill(root, 0);
 		more_label->hide();
 	} else {
 		// Only the matching paths, expanded; clearing the search goes back to the lazy tree.
-		const Vector<PackedInt32Array> paths = DataFileTreeAdapter::find(root_value, xml, query, MAX_MATCHES);
+		const Vector<PackedInt32Array> paths = DataFileTreeAdapter::find(tree_value, xml, query, MAX_MATCHES, &_decorate_found, this);
 		const Color match_color = get_theme_color(SNAME("accent_color"), EditorStringName(Editor));
 		for (const PackedInt32Array &path : paths) {
 			TreeItem *item = root;
@@ -398,11 +370,38 @@ void DataFileInspectorView::_update_tree() {
 		more_label->show();
 	}
 
-	const Ref<Font> font = get_theme_font(SceneStringName(font), SNAME("Tree"));
-	const int font_size = get_theme_font_size(SceneStringName(font_size), SNAME("Tree"));
-	const int row_height = (int)(font.is_valid() ? font->get_height(font_size) + get_theme_constant(SNAME("v_separation"), SNAME("Tree")) : 24 * EDSCALE);
-	const int top_level_count = MIN(DataFileTreeAdapter::get_child_count(root_value, xml), CHILD_PAGE);
-	tree->set_custom_minimum_size(Size2(0, (CLAMP(top_level_count, 3, 14) + 2) * row_height));
+	const int top_level_count = MIN(DataFileTreeAdapter::get_child_count(tree_value, xml), CHILD_PAGE);
+	tree->set_custom_minimum_size(Size2(0, (CLAMP(top_level_count, 3, 14) + 2) * _get_row_height()));
+}
+
+void DataFileInspectorView::_update_dataset_button() {
+	// The Dataset dock is shared by every format with a table (#420, #436); formats add their own docks with
+	// _add_dock_button(). "Open as Text" is in the FileSystem context menu. Runs once per change of the data
+	// (debounced), like the preview; see the unit test "Dataset button cost" for the time on large files.
+	const Vector<DatasetEditor::Table> tables = DatasetEditor::find_tables(resource.ptr());
+	dataset_button->set_visible(!tables.is_empty());
+	String tooltip = TTR("Edit the rows in the Dataset dock.");
+	for (const DatasetEditor::Table &table : tables) {
+		String table_name = String(table.key);
+		if (table.source == DatasetEditor::SOURCE_SECTIONS) {
+			table_name = TTR("Sections");
+		} else if (table.key.get_type() == Variant::NIL) {
+			table_name = TTR("Whole file");
+		} else if (table.source == DatasetEditor::SOURCE_ELEMENTS) {
+			table_name = "<" + table_name + ">";
+		}
+		tooltip += "\n" + vformat(TTRN("%s: %d row", "%s: %d rows", table.row_count), table_name, table.row_count);
+	}
+	dataset_button->set_tooltip_text(tooltip);
+}
+
+Button *DataFileInspectorView::_add_dock_button(const String &p_text, const String &p_tooltip, const Callable &p_pressed) {
+	Button *button = memnew(Button(p_text));
+	button->set_tooltip_text(p_tooltip);
+	button->connect(SceneStringName(pressed), p_pressed);
+	button_row->add_child(button);
+	button_row->move_child(button, dataset_button->get_index());
+	return button;
 }
 
 void DataFileInspectorView::_queue_update() {
@@ -427,54 +426,11 @@ void DataFileInspectorView::_update() {
 	}
 
 	const Variant file_data = format.is_valid() ? format->get_data() : json->get_data();
-	const bool csv = Object::cast_to<CSV>(*resource) != nullptr;
-	xml = Object::cast_to<XML>(*resource) != nullptr;
+	summary_label->set_text(vformat("%s: %s", resource->get_class(), get_summary_text(file_data)));
+	_update_dataset_button();
+	_update_dock_buttons();
+	_update_preview(file_data);
 
-	root_value = file_data;
-	String counts;
-	if (csv) {
-		const Ref<CSV> csv_file = resource;
-		const int rows = csv_file->get_row_count();
-		const int columns = csv_file->get_column_count();
-		counts = vformat(TTRN("%d row", "%d rows", rows), rows) + ", " + vformat(TTRN("%d column", "%d columns", columns), columns);
-	} else if (Object::cast_to<INI>(*resource)) {
-		const Dictionary sections = file_data;
-		int key_count = 0;
-		for (const KeyValue<Variant, Variant> &kv : sections) {
-			key_count += Dictionary(kv.value).size();
-		}
-		counts = vformat(TTRN("%d section", "%d sections", sections.size()), sections.size()) + ", " + vformat(TTRN("%d key", "%d keys", key_count), key_count);
-	} else if (xml) {
-		// The tree shows the root element itself as the only top-level node.
-		const Dictionary root = file_data;
-		Array nodes;
-		if (!root.is_empty()) {
-			nodes.push_back(root);
-		}
-		root_value = nodes;
-		const int children = Array(root.get(XML::KEY_CHILDREN, Array())).size();
-		counts = root.is_empty() ? TTR("No root element") : vformat(TTRN("Root element <%s>, %d child node", "Root element <%s>, %d child nodes", children), root.get(XML::KEY_NAME, String()), children);
-	} else {
-		const DataFileTreeAdapter::Entry entry = DataFileTreeAdapter::make_entry(String(), file_data, false);
-		counts = entry.data.is_array() || entry.data.get_type() == Variant::DICTIONARY ? entry.type + ", " + entry.value : entry.type;
-	}
-	summary_label->set_text(vformat("%s: %s", resource->get_class(), counts));
-
-	// One button to the dock that edits the file (#420): INI files in the INI dock (#424), table-shaped data in the
-	// Dataset dock, translation CSVs in the Localization Table dock. "Open as Text" is in the FileSystem context menu.
-	const bool ini = Object::cast_to<INI>(*resource) != nullptr;
-	const bool localization = !ini && CSVTableEditor::can_edit(resource.ptr());
-	const bool dataset = !ini && !localization && DatasetEditor::can_edit(resource.ptr());
-	table_button->set_visible(ini || dataset || localization);
-	table_button->set_text(ini ? TTR("Open in INI Dock") : (dataset ? TTR("Open in Dataset Dock") : TTR("Open in Localization Table Dock")));
-	table_button->set_tooltip_text(ini ? TTR("Edit the sections and keys in the INI dock.") : (dataset ? TTR("Edit the rows in the Dataset dock.") : TTR("Edit the translations in the Localization Table dock.")));
-	search->set_visible(!csv);
-
-	if (csv) {
-		_update_csv();
-	} else {
-		_update_tree();
-	}
 	TreeItem *root = tree->get_root();
 	if (root && root->get_first_child()) {
 		_restore(root, expanded, selected);
@@ -590,19 +546,7 @@ void DataFileInspectorView::_open_text(int p_line) {
 	}
 }
 
-void DataFileInspectorView::_open_table() {
-	INIEditor *ini_editor = INIEditor::get_singleton();
-	if (ini_editor && Object::cast_to<INI>(*resource)) {
-		ini_editor->edit(resource);
-		ini_editor->make_visible();
-		return;
-	}
-	CSVTableEditor *table_editor = CSVTableEditor::get_singleton();
-	if (table_editor && CSVTableEditor::can_edit(resource.ptr())) {
-		table_editor->edit(resource);
-		table_editor->make_visible();
-		return;
-	}
+void DataFileInspectorView::_open_in_dataset_dock() {
 	DatasetEditor *dataset_editor = DatasetEditor::get_singleton();
 	if (dataset_editor && DatasetEditor::can_edit(resource.ptr())) {
 		dataset_editor->edit(resource);
@@ -650,17 +594,19 @@ DataFileInspectorView::DataFileInspectorView(const Ref<Resource> &p_resource) {
 	status_label->set_custom_minimum_size(Size2(100, 0) * EDSCALE);
 	add_child(status_label);
 
-	HBoxContainer *buttons = memnew(HBoxContainer);
-	add_child(buttons);
+	// Wraps in a narrow Inspector (a format may add its own dock buttons before Open in Dataset Dock).
+	button_row = memnew(HFlowContainer);
+	add_child(button_row);
 
-	table_button = memnew(Button(TTR("Open in Dataset Dock")));
-	table_button->connect(SceneStringName(pressed), callable_mp(this, &DataFileInspectorView::_open_table));
-	buttons->add_child(table_button);
+	dataset_button = memnew(Button(TTR("Open in Dataset Dock")));
+	dataset_button->hide();
+	dataset_button->connect(SceneStringName(pressed), callable_mp(this, &DataFileInspectorView::_open_in_dataset_dock));
+	button_row->add_child(dataset_button);
 
 	Button *validate_button = memnew(Button(TTR("Validate")));
 	validate_button->set_tooltip_text(TTR("Check the data against the data schema listed for this file (project setting filesystem/data/schema_files)."));
 	validate_button->connect(SceneStringName(pressed), callable_mp(this, &DataFileInspectorView::_validate).bind(true));
-	buttons->add_child(validate_button);
+	button_row->add_child(validate_button);
 
 	issue_list = memnew(ItemList);
 	issue_list->set_auto_height(true);
@@ -705,15 +651,20 @@ DataFileInspectorView::DataFileInspectorView(const Ref<Resource> &p_resource) {
 
 	raw_check = memnew(CheckBox(TTR("Raw Properties")));
 	raw_check->set_pressed(EditorInspectorPluginDataFile::show_raw_properties);
-	raw_check->set_tooltip_text(TTR("Also show the default editors of the stored properties (data, and header of CSV)."));
+	raw_check->set_tooltip_text(TTR("Also show the default editors of the stored properties that the view shows."));
 	raw_check->connect(SceneStringName(toggled), callable_mp(this, &DataFileInspectorView::_raw_toggled));
 	add_child(raw_check);
 }
 
 // EditorInspectorPluginDataFile
 
-bool EditorInspectorPluginDataFile::can_handle(Object *p_object) {
-	return Object::cast_to<TextDataFormat>(p_object) != nullptr || Object::cast_to<JSON>(p_object) != nullptr;
+DataFileInspectorView *EditorInspectorPluginDataFile::create_view(const Ref<Resource> &p_resource) const {
+	return memnew(DataFileInspectorView(p_resource));
+}
+
+void EditorInspectorPluginDataFile::_add_view(Object *p_object) {
+	view_added = true;
+	add_custom_control(create_view(Ref<Resource>(Object::cast_to<Resource>(p_object))));
 }
 
 void EditorInspectorPluginDataFile::parse_begin(Object *p_object) {
@@ -723,19 +674,23 @@ void EditorInspectorPluginDataFile::parse_begin(Object *p_object) {
 void EditorInspectorPluginDataFile::parse_category(Object *p_object, const String &p_category) {
 	// Below the first category (the format class, or TextDataFormat if the format has no own properties).
 	if (!view_added) {
-		view_added = true;
-		add_custom_control(memnew(DataFileInspectorView(Ref<Resource>(Object::cast_to<Resource>(p_object)))));
+		_add_view(p_object);
 	}
 }
 
 bool EditorInspectorPluginDataFile::parse_property(Object *p_object, const Variant::Type p_type, const String &p_path, const PropertyHint p_hint, const String &p_hint_text, const BitField<PropertyUsageFlags> p_usage, const bool p_wide) {
-	const bool hidden = p_path == "data" || (p_path == "header" && Object::cast_to<CSV>(p_object));
-	if (hidden && !view_added) {
+	const bool previewed = _is_previewed_property(p_object, p_path);
+	if (previewed && !view_added) {
 		// Inspectors without categories (sub-inspectors).
-		view_added = true;
-		add_custom_control(memnew(DataFileInspectorView(Ref<Resource>(Object::cast_to<Resource>(p_object)))));
+		_add_view(p_object);
 	}
-	return hidden && !show_raw_properties;
+	return previewed && !show_raw_properties;
+}
+
+// EditorInspectorPluginJSON
+
+bool EditorInspectorPluginJSON::can_handle(Object *p_object) {
+	return Object::cast_to<JSON>(p_object) != nullptr;
 }
 
 // EditorInspectorPluginDataSchema
@@ -785,9 +740,18 @@ void EditorInspectorPluginDataSchema::parse_begin(Object *p_object) {
 // DataFileInspectorEditorPlugin
 
 DataFileInspectorEditorPlugin::DataFileInspectorEditorPlugin() {
-	Ref<EditorInspectorPluginDataFile> plugin;
-	plugin.instantiate();
-	add_inspector_plugin(plugin);
+	Ref<EditorInspectorPluginCSV> csv_plugin;
+	csv_plugin.instantiate();
+	add_inspector_plugin(csv_plugin);
+	Ref<EditorInspectorPluginINI> ini_plugin;
+	ini_plugin.instantiate();
+	add_inspector_plugin(ini_plugin);
+	Ref<EditorInspectorPluginXML> xml_plugin;
+	xml_plugin.instantiate();
+	add_inspector_plugin(xml_plugin);
+	Ref<EditorInspectorPluginJSON> json_plugin;
+	json_plugin.instantiate();
+	add_inspector_plugin(json_plugin);
 	Ref<EditorInspectorPluginDataSchema> schema_plugin;
 	schema_plugin.instantiate();
 	add_inspector_plugin(schema_plugin);

@@ -42,12 +42,19 @@
 #ifdef TOOLS_ENABLED
 #include "editor/editor_node.h"
 #include "editor/script/script_editor_plugin.h"
+#include "editor/yaml_inspector_plugin.h"
 #include "editor/yaml_syntax_highlighter.h"
 
 static void _register_yaml_syntax_highlighter() {
 	Ref<EditorYAMLSyntaxHighlighter> highlighter;
 	highlighter.instantiate();
 	ScriptEditor::get_singleton()->register_syntax_highlighter(highlighter);
+}
+
+static void _register_yaml_inspector_plugin() {
+	Ref<EditorInspectorPluginYAML> plugin;
+	plugin.instantiate();
+	EditorInspector::add_inspector_plugin(plugin);
 }
 #endif // TOOLS_ENABLED
 
@@ -62,6 +69,7 @@ void initialize_yaml_module(ModuleInitializationLevel p_level) {
 #ifdef TOOLS_ENABLED
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		EditorNode::add_init_callback(&_register_yaml_syntax_highlighter);
+		EditorNode::add_init_callback(&_register_yaml_inspector_plugin);
 		return;
 	}
 #endif // TOOLS_ENABLED

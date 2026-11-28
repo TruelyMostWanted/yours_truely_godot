@@ -42,6 +42,10 @@
 #include "tests/test_macros.h"
 #include "tests/test_utils.h"
 
+#ifdef TOOLS_ENABLED
+#include "../editor/yaml_inspector_plugin.h"
+#endif
+
 namespace TestYAML {
 
 class YAMLTestEntry : public Resource {
@@ -713,5 +717,54 @@ TEST_CASE("[YAML] Registered as text format FORMAT_YAML") {
 	check_yaml_settings(serializer->deserialize(text, ResourceTextSerializer::FORMAT_YAML));
 	check_yaml_settings(YAML::deserialize(text));
 }
+
+#ifdef TOOLS_ENABLED
+TEST_CASE("[SceneTree][YAMLInspectorView] Documents") {
+	Ref<YAML> yaml;
+	yaml.instantiate();
+	REQUIRE(yaml->parse("name: knight\nhp: 100\n") == OK);
+	Ref<EditorInspectorPluginYAML> plugin;
+	plugin.instantiate();
+	CHECK(plugin->can_handle(yaml.ptr()));
+	for (const char *other : { "CSV", "INI", "XML", "JSON", "TOML" }) {
+		if (ClassDB::class_exists(other)) {
+			const Ref<RefCounted> format = Object::cast_to<RefCounted>(ClassDB::instantiate(other));
+			CHECK_FALSE(plugin->can_handle(format.ptr()));
+		}
+	}
+	YAMLInspectorView *view = Object::cast_to<YAMLInspectorView>(plugin->create_view(yaml));
+	REQUIRE(view != nullptr);
+
+	// One document: the tree of `data`, rows named by their keys.
+	CHECK(view->get_tree_value(yaml->get_data()) == yaml->get_data());
+	CHECK(view->get_summary_text(yaml->get_data()) == "Dictionary, 2 keys");
+	LocalVector<DataFileTreeAdapter::Entry> rows;
+	DataFileTreeAdapter::get_children(view->get_tree_value(yaml->get_data()), false, 0, -1, rows);
+	REQUIRE(rows.size() == 2);
+	view->decorate_row(rows[0], true);
+	CHECK(rows[0].key == "name");
+
+	// Several documents: one top-level row "Document N" of type Document per document.
+	REQUIRE(yaml->parse("name: knight\n---\nname: archer\n---\n- 1\n") == OK);
+	CHECK(view->get_summary_text(yaml->get_data()) == "3 documents");
+	const Array documents = view->get_tree_value(yaml->get_data());
+	REQUIRE(documents.size() == 3);
+	CHECK(Dictionary(documents[1])["name"] == "archer");
+	rows.clear();
+	DataFileTreeAdapter::get_children(documents, false, 0, -1, rows);
+	REQUIRE(rows.size() == 3);
+	for (DataFileTreeAdapter::Entry &row : rows) {
+		view->decorate_row(row, true);
+	}
+	CHECK(rows[0].key == "Document 1");
+	CHECK(rows[2].key == "Document 3");
+	CHECK(rows[2].type == "Document");
+	CHECK(rows[2].value == "1 item");
+	DataFileTreeAdapter::Entry entry = DataFileTreeAdapter::make_entry("name", "knight", false);
+	view->decorate_row(entry, false);
+	CHECK(entry.key == "name");
+	memdelete(view);
+}
+#endif // TOOLS_ENABLED
 
 } // namespace TestYAML
