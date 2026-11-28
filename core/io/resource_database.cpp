@@ -341,11 +341,14 @@ Error ResourceDatabase::_collect(const Ref<Preloads> &p_preloads, Job *r_job) {
 }
 
 void ResourceDatabase::_run_job(Job *p_job) {
+	const uint32_t total = p_job->paths.size();
 	for (const Pair<String, String> &path : p_job->paths) {
 		const Error err = _load_and_store(path.first, path.second);
 		if (err != OK && p_job->error == OK) {
 			p_job->error = err;
 		}
+		const uint32_t loaded = p_job->loaded_count.increment();
+		callable_mp(this, &ResourceDatabase::_emit_preload_progress).call_deferred(p_job->preloads, int(loaded), int(total));
 	}
 	_apply_keys(p_job->keys);
 }
@@ -378,6 +381,21 @@ void ResourceDatabase::_job_done(uint64_t p_job_id) {
 
 void ResourceDatabase::_emit_preload_finished(const Ref<Preloads> &p_preloads, int p_error) {
 	emit_signal(SNAME("preload_finished"), p_preloads, p_error);
+}
+
+void ResourceDatabase::_emit_preload_progress(const Ref<Preloads> &p_preloads, int p_loaded, int p_total) {
+	emit_signal(SNAME("preload_progress"), p_preloads, LoadProgress::create_counted(p_loaded, p_total));
+}
+
+Ref<LoadProgress> ResourceDatabase::get_preload_progress() const {
+	MutexLock jobs_lock(jobs_mutex);
+	uint64_t loaded = 0;
+	uint64_t total = 0;
+	for (const KeyValue<uint64_t, Job *> &job : jobs) {
+		loaded += job.value->loaded_count.get();
+		total += job.value->paths.size();
+	}
+	return LoadProgress::create_counted(int(loaded), int(total));
 }
 
 Error ResourceDatabase::preload_from(const Ref<Preloads> &p_preloads, bool p_use_threads) {
@@ -666,7 +684,9 @@ void ResourceDatabase::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("get_memory_usage"), &ResourceDatabase::get_memory_usage);
 	ClassDB::bind_method(D_METHOD("is_preloading"), &ResourceDatabase::is_preloading);
+	ClassDB::bind_method(D_METHOD("get_preload_progress"), &ResourceDatabase::get_preload_progress);
 
+	ADD_SIGNAL(MethodInfo("preload_progress", PropertyInfo(Variant::OBJECT, "preloads", PROPERTY_HINT_RESOURCE_TYPE, "Preloads"), PropertyInfo(Variant::OBJECT, "progress", PROPERTY_HINT_RESOURCE_TYPE, "LoadProgress")));
 	ADD_SIGNAL(MethodInfo("preload_finished", PropertyInfo(Variant::OBJECT, "preloads", PROPERTY_HINT_RESOURCE_TYPE, "Preloads"), PropertyInfo(Variant::INT, "error", PROPERTY_HINT_NONE, String(), PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_CLASS_IS_ENUM, "Error")));
 }
 

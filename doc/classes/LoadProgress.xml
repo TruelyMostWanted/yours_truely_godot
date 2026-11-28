@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="LoadProgress" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Snapshot of the progress of loading a set of files.
+	</brief_description>
+	<description>
+		[LoadProgress] is the one progress model for loading several files: [signal ResourceDatabase.preload_progress] and [method ResourceDatabase.get_preload_progress] report the files of [method ResourceDatabase.preload_from] (a [Preloads], also with [FilesManifest]s), [method ResourceLoader.load_threaded_get_manifest_status] reports a [FilesManifest] that is loaded directly, and [method TransitionScreen.get_load_progress] reports a scene transition. The same code shows any of them, for example "3 / 12 loaded" and a progress bar:
+		[codeblocks]
+		[gdscript]
+		func _process(_delta):
+		    var progress := ResourceLoader.load_threaded_get_manifest_status(manifest)
+		    $Label.text = "%d / %d loaded" % [progress.get_loaded_count(), progress.get_total_count()]
+		    $ProgressBar.ratio = progress.get_ratio()
+		[/gdscript]
+		[csharp]
+		public override void _Process(double delta)
+		{
+		    LoadProgress progress = ResourceLoader.LoadThreadedGetManifestStatus(manifest);
+		    GetNode&lt;Label&gt;("Label").Text = $"{progress.GetLoadedCount()} / {progress.GetTotalCount()} loaded";
+		    GetNode&lt;ProgressBar&gt;("ProgressBar").Ratio = progress.GetRatio();
+		}
+		[/csharp]
+		[/codeblocks]
+		A snapshot does not change after it was created: ask again (or wait for the next signal) for newer values.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_loaded_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of files that are loaded (or failed to load, which is also done).
+			</description>
+		</method>
+		<method name="get_ratio" qualifiers="const">
+			<return type="float" />
+			<description>
+				Returns the progress from [code]0.0[/code] to [code]1.0[/code]. Where the loader reports it, files that are still loading count with their own progress, so the value moves between two loaded files. It is [code]1.0[/code] when there is nothing to load.
+			</description>
+		</method>
+		<method name="get_total_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of files to load.
+			</description>
+		</method>
+		<method name="is_finished" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if every file is loaded ([method get_loaded_count] is not less than [method get_total_count]), also if there are no files.
+			</description>
+		</method>
+	</methods>
+</class>

@@ -31,6 +31,7 @@
 #include "files_manifest.h"
 
 #include "core/io/dir_access.h"
+#include "core/io/load_progress.h"
 #include "core/io/path_info.h"
 #include "core/io/path_prefix_server.h"
 #include "core/io/resource_loader.h"
@@ -403,6 +404,55 @@ Error FilesManifest::load_threaded_request_resources(bool p_use_sub_threads, Res
 	const PackedStringArray paths = get_paths(&paths_error);
 	const Error request_error = load_threaded_request_paths(paths, _get_load_type_hint(), p_use_sub_threads, p_cache_mode);
 	return paths_error != OK ? paths_error : request_error;
+}
+
+Ref<LoadProgress> FilesManifest::load_threaded_get_status_resources(bool p_use_sub_threads, ResourceLoaderConstants::CacheMode p_cache_mode) const {
+	const PackedStringArray paths = get_paths();
+	const String type_hint = _get_load_type_hint();
+	int loaded = 0;
+	float done = 0.0f;
+#ifndef THREADS_ENABLED
+	bool stepped = false;
+#endif
+	for (const String &path : paths) {
+		float file_progress = 0.0f;
+		ResourceLoader::ThreadLoadStatus status = ResourceLoader::load_threaded_get_status(path, &file_progress);
+		if (status == ResourceLoader::THREAD_LOAD_INVALID_RESOURCE) {
+#ifndef THREADS_ENABLED
+			if (stepped) {
+				continue; // One blocking load per call.
+			}
+			stepped = true;
+#endif
+			if (ResourceLoader::load_threaded_request(path, type_hint, p_use_sub_threads, p_cache_mode) != OK) {
+				loaded++; // Failed to start: done, the file is left out of the result.
+				done += 1.0f;
+				continue;
+			}
+			status = ResourceLoader::load_threaded_get_status(path, &file_progress);
+		}
+		if (status == ResourceLoader::THREAD_LOAD_IN_PROGRESS) {
+#ifdef THREADS_ENABLED
+			done += file_progress;
+			continue;
+#endif
+		}
+		// Loaded or failed; without threads a requested file completes in `load_threaded_get()`.
+		loaded++;
+		done += 1.0f;
+	}
+	return LoadProgress::create(loaded, paths.size(), paths.is_empty() ? 1.0f : done / float(paths.size()));
+}
+
+Dictionary FilesManifest::load_threaded_get_resources() const {
+	Dictionary result;
+	for (const String &path : get_paths()) {
+		const Ref<Resource> resource = ResourceLoader::load_threaded_get(path);
+		if (resource.is_valid()) {
+			result[path] = resource;
+		}
+	}
+	return result;
 }
 
 void FilesManifest::_bind_methods() {

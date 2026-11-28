@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/io/load_progress.h"
 #include "core/variant/binder_common.h"
 #include "scene/main/canvas_layer.h"
 #include "scene/resources/packed_scene.h"
@@ -63,10 +64,23 @@ private:
 	bool auto_finish = true;
 	bool free_current_scene_before_loading = false;
 	Ref<Preloads> preload_assets;
+	NodePath animation_player;
+	StringName intro_animation;
+	StringName outro_animation;
 
 	State state = STATE_IDLE;
 	String loading_path; // Resolved `next_scene`; empty when no scene change happens.
 	bool preload_pending = false;
+	bool preload_tracked = false; // The asset progress counts into `progress`.
+	float scene_progress = 0.0f;
+	float assets_progress = 0.0f;
+	int assets_loaded = 0;
+	int assets_total = 0;
+	PackedStringArray assets_steps; // Without threads: the files to load, one per frame.
+	int assets_step_index = 0;
+	double animation_length = -1.0; // Seconds of the animation that drives the current fade; negative: built-in fade.
+	bool intro_animated = false;
+	bool outro_started = false;
 	bool request_pending = false; // Loading starts on the frame after the screen became fully visible.
 	bool load_requested = false; // A threaded load token is held until `load_threaded_get()`.
 	Error load_error = OK;
@@ -80,10 +94,14 @@ private:
 	void _process_transition(double p_delta);
 	void _set_fade(float p_fade);
 	void _set_progress(float p_progress);
+	void _update_progress();
+	double _play_animation(const StringName &p_animation);
 	void _request_loading();
 	void _poll_loading();
 	void _fail_loading(Error p_error);
 	void _change_scene();
+	void _preload_progress(const Ref<Preloads> &p_preloads, const Ref<LoadProgress> &p_progress);
+	void _step_assets();
 	void _preload_finished(const Ref<Preloads> &p_preloads, int p_error);
 
 	static inline ObjectID running_screen; // The transition in progress (one at a time).
@@ -91,6 +109,7 @@ private:
 
 protected:
 	void _notification(int p_what);
+	void _validate_property(PropertyInfo &p_property) const;
 	static void _bind_methods();
 	virtual void input(const Ref<InputEvent> &p_event) override;
 
@@ -117,10 +136,17 @@ public:
 	bool is_free_current_scene_before_loading() const;
 	void set_preload_assets(const Ref<Preloads> &p_assets);
 	Ref<Preloads> get_preload_assets() const;
+	void set_animation_player(const NodePath &p_path);
+	NodePath get_animation_player() const;
+	void set_intro_animation(const StringName &p_animation);
+	StringName get_intro_animation() const;
+	void set_outro_animation(const StringName &p_animation);
+	StringName get_outro_animation() const;
 
 	void finish();
 	State get_state() const;
 	float get_progress() const;
+	Ref<LoadProgress> get_load_progress() const;
 	float get_fade() const;
 	Error get_load_error() const;
 
@@ -137,6 +163,8 @@ class LoadingScreen : public TransitionScreen {
 
 	NodePath progress_bar;
 	NodePath tip_label;
+	NodePath count_label;
+	String count_format = "%d / %d";
 	PackedStringArray tips;
 	double tip_interval = 5.0;
 
@@ -155,6 +183,10 @@ public:
 	NodePath get_progress_bar() const;
 	void set_tip_label(const NodePath &p_path);
 	NodePath get_tip_label() const;
+	void set_count_label(const NodePath &p_path);
+	NodePath get_count_label() const;
+	void set_count_format(const String &p_format);
+	String get_count_format() const;
 	void set_tips(const PackedStringArray &p_tips);
 	PackedStringArray get_tips() const;
 	void set_tip_interval(double p_seconds);

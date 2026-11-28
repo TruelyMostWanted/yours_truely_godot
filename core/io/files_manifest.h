@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "core/io/load_progress.h"
 #include "core/io/resource.h"
 #include "core/io/resource_loader_constants.h"
 #include "core/templates/hash_set.h"
@@ -105,4 +106,10 @@ public:
 	Dictionary load_resources(ResourceLoaderConstants::CacheMode p_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE, Error *r_error = nullptr) const;
 	// Starts a threaded load for every path, see `ResourceLoader::load_threaded_request()`.
 	Error load_threaded_request_resources(bool p_use_sub_threads = false, ResourceLoaderConstants::CacheMode p_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE) const;
+	// Progress of the threaded load: files loaded, total, and the ratio including the files still loading. Files
+	// that were not requested yet are requested: all at once with threads, one per call without threads (Web), so
+	// that calling it every frame advances the load step by step.
+	Ref<LoadProgress> load_threaded_get_status_resources(bool p_use_sub_threads = false, ResourceLoaderConstants::CacheMode p_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE) const;
+	// Returns path -> Resource of the requested files (waits for those still loading); paths that fail are left out.
+	Dictionary load_threaded_get_resources() const;
 };

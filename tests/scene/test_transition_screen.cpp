@@ -38,6 +38,9 @@ TEST_FORCE_LINK(test_transition_screen)
 #include "core/io/resource_database.h"
 #include "core/io/resource_saver.h"
 #include "core/os/os.h"
+#include "scene/animation/animation.h"
+#include "scene/animation/animation_library.h"
+#include "scene/animation/animation_player.h"
 #include "scene/gui/label.h"
 #include "scene/gui/progress_bar.h"
 #include "scene/main/scene_tree.h"
@@ -476,6 +479,142 @@ TEST_CASE("[SceneTree][TransitionScreen] A screen inside the current scene runs 
 	CHECK(freed->get_state() == TransitionScreen::STATE_FADING_IN);
 	memdelete(freed);
 	CHECK(ResourceLoader::load_threaded_get_status(path) == ResourceLoader::THREAD_LOAD_INVALID_RESOURCE);
+}
+
+static AnimationPlayer *_add_player(TransitionScreen *p_screen, double p_intro_length, double p_outro_length) {
+	AnimationPlayer *player = memnew(AnimationPlayer);
+	player->set_name("Player");
+	Ref<AnimationLibrary> library;
+	library.instantiate();
+	Ref<Animation> intro;
+	intro.instantiate();
+	intro->set_length(p_intro_length);
+	library->add_animation("intro", intro);
+	Ref<Animation> outro;
+	outro.instantiate();
+	outro->set_length(p_outro_length);
+	library->add_animation("outro", outro);
+	player->add_animation_library("", library);
+	p_screen->add_child(player);
+	p_screen->set_animation_player(NodePath("Player"));
+	return player;
+}
+
+TEST_CASE("[SceneTree][TransitionScreen] Animations replace the built-in fade; their length sets the duration") {
+	TransitionScreen *screen = memnew(TransitionScreen);
+	CHECK(screen->get_animation_player().is_empty());
+	CHECK(screen->get_intro_animation() == StringName());
+	CHECK(screen->get_outro_animation() == StringName());
+	AnimationPlayer *player = _add_player(screen, 1.0, 0.5);
+	screen->set_intro_animation("intro");
+	screen->set_outro_animation("outro");
+	screen->set_min_duration(0.2);
+	screen->set_fade_in_duration(10.0); // Ignored with an animation.
+	screen->set_fade_out_duration(10.0);
+	const ObjectID id = screen->get_instance_id();
+	SceneTree::get_singleton()->get_root()->add_child(screen);
+
+	SceneTree::get_singleton()->process(0.1); // Starts.
+	CHECK(screen->get_state() == TransitionScreen::STATE_FADING_IN);
+	CHECK(player->get_current_animation() == "intro");
+	SceneTree::get_singleton()->process(0.5);
+	CHECK(screen->get_fade() == doctest::Approx(0.5));
+	SceneTree::get_singleton()->process(0.5);
+	CHECK(screen->get_fade() == doctest::Approx(1.0));
+	CHECK(screen->get_state() == TransitionScreen::STATE_LOADED);
+
+	SceneTree::get_singleton()->process(0.2); // Waited min_duration, no next scene: the outro starts.
+	CHECK(screen->get_state() == TransitionScreen::STATE_FADING_OUT);
+	CHECK(player->get_current_animation() == "outro");
+	SceneTree::get_singleton()->process(0.25);
+	CHECK(screen->get_fade() == doctest::Approx(0.5));
+	SceneTree::get_singleton()->process(0.25);
+	SceneTree::get_singleton()->process(0.0);
+	CHECK_FALSE(_is_alive(id));
+}
+
+TEST_CASE("[SceneTree][TransitionScreen] A missing animation falls back to the built-in fade; mixed phases work") {
+	TransitionScreen *screen = memnew(TransitionScreen);
+	_add_player(screen, 1.0, 0.5);
+	screen->set_intro_animation("missing");
+	screen->set_outro_animation("outro");
+	screen->set_fade_in_duration(0.4);
+	screen->set_fade_out_duration(10.0);
+	const ObjectID id = screen->get_instance_id();
+	SceneTree::get_singleton()->get_root()->add_child(screen);
+
+	ERR_PRINT_OFF;
+	SceneTree::get_singleton()->process(0.1);
+	ERR_PRINT_ON;
+	SceneTree::get_singleton()->process(0.2);
+	CHECK(screen->get_fade() == doctest::Approx(0.5)); // Built-in fade-in over 0.4 s.
+	SceneTree::get_singleton()->process(0.2);
+	CHECK(screen->get_fade() == doctest::Approx(1.0));
+	SceneTree::get_singleton()->process(0.0);
+	SceneTree::get_singleton()->process(0.25);
+	CHECK(screen->get_fade() == doctest::Approx(0.5)); // Outro animation (0.5 s), not the 10 s fade.
+	SceneTree::get_singleton()->process(0.25);
+	SceneTree::get_singleton()->process(0.0);
+	CHECK_FALSE(_is_alive(id));
+
+	// Built-in outro after an animated intro starts opaque.
+	TransitionScreen *second = memnew(TransitionScreen);
+	_add_player(second, 0.2, 0.2);
+	second->set_intro_animation("intro");
+	second->set_fade_out_duration(0.4);
+	const ObjectID second_id = second->get_instance_id();
+	SceneTree::get_singleton()->get_root()->add_child(second);
+	SceneTree::get_singleton()->process(0.1);
+	SceneTree::get_singleton()->process(0.2);
+	SceneTree::get_singleton()->process(0.0);
+	CHECK(second->get_state() == TransitionScreen::STATE_FADING_OUT);
+	CHECK(second->get_fade() == doctest::Approx(1.0));
+	SceneTree::get_singleton()->process(0.2);
+	CHECK(second->get_fade() == doctest::Approx(0.5));
+	_run_until_freed(second_id);
+	CHECK_FALSE(_is_alive(second_id));
+}
+
+TEST_CASE("[SceneTree][TransitionScreen] Progress covers the scene and the preload assets") {
+	SceneTree *tree = SceneTree::get_singleton();
+	const String path = _save_scene("progress_next.tscn", "ProgressNext");
+	ResourceDatabase *database = ResourceDatabase::get_singleton();
+	REQUIRE(database != nullptr);
+	database->clear();
+
+	LoadingScreen *screen = memnew(LoadingScreen);
+	Label *counter = memnew(Label);
+	counter->set_name("Count");
+	screen->add_child(counter);
+	screen->set_count_label(NodePath("Count"));
+	screen->set_next_scene(path);
+	screen->set_fade_in_duration(0.0);
+	screen->set_auto_finish(false);
+	Ref<Preloads> preloads;
+	preloads.instantiate();
+	const String asset_path = _save_scene("progress_asset.tscn", "ProgressAsset");
+	preloads->set_paths(PackedStringArray({ asset_path }));
+	screen->set_preload_assets(preloads);
+	tree->get_root()->add_child(screen);
+
+	float last_progress = 0.0f;
+	for (int frame = 0; frame < 2000 && screen->get_state() < TransitionScreen::STATE_LOADED; frame++) {
+		tree->process(0.0);
+		CHECK(screen->get_progress() >= last_progress); // Never goes back.
+		CHECK(screen->get_progress() <= 1.0f);
+		last_progress = screen->get_progress();
+		OS::get_singleton()->delay_usec(500);
+	}
+	REQUIRE(screen->get_state() == TransitionScreen::STATE_LOADED);
+	CHECK(screen->get_progress() == doctest::Approx(1.0));
+	CHECK(database->has_resource(asset_path));
+	const Ref<LoadProgress> load_progress = screen->get_load_progress();
+	CHECK(load_progress->get_total_count() == 2); // The scene and one asset file.
+	CHECK(load_progress->get_loaded_count() == 2);
+	CHECK(counter->get_text() == "2 / 2");
+
+	memdelete(screen);
+	database->clear();
 }
 
 } // namespace TestTransitionScreen
