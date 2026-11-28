@@ -303,9 +303,6 @@
 		<member name="docks/filesystem/thumbnail_size" type="int" setter="" getter="">
 			The thumbnail size to use in the FileSystem dock (in pixels). See also [member filesystem/file_dialog/thumbnail_size].
 		</member>
-		<member name="docks/ini_editor/open_on_double_click" type="bool" setter="" getter="">
-			If [code]true[/code], the INI dock opens next to the script editor when an INI file ([code].ini[/code], [code].cfg[/code]) is opened, for example with a double-click in the FileSystem dock. If [code]false[/code], the INI dock opens only with [b]Open in INI Dock[/b] in the inspector.
-		</member>
 		<member name="docks/property_editor/auto_refresh_interval" type="float" setter="" getter="">
 			The refresh interval to use for the Inspector dock's properties. The effect of this setting is mainly noticeable when adjusting gizmos in the 2D/3D editor and looking at the inspector at the same time. Lower values make the inspector refresh more often, but take up more CPU time.
 		</member>

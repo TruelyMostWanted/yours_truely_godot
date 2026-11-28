@@ -42,8 +42,11 @@ TEST_FORCE_LINK(test_data_file_inspector_plugin)
 #include "core/io/xml_format.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
+#include "core/string/localization_catalog.h"
+#include "editor/data/csv_table_editor.h"
 #include "editor/data/data_tree_adapter.h"
 #include "editor/data/dataset_editor.h"
+#include "editor/data/ini_editor.h"
 #include "editor/inspector/csv_inspector_plugin.h"
 #include "editor/inspector/data_file_inspector_plugin.h"
 #include "editor/inspector/ini_inspector_plugin.h"
@@ -175,8 +178,72 @@ TEST_CASE("[SceneTree][XMLInspectorView] Root element") {
 	memdelete(view);
 }
 
-TEST_CASE("[DataFileInspectorView] Dataset button cost on large files") {
-	// The view looks for the file's tables once per change of the data (DatasetEditor::find_tables()).
+// The texts of the buttons anywhere below `p_node`.
+static void collect_button_texts(const Node *p_node, PackedStringArray &r_texts) {
+	for (int child_index = 0; child_index < p_node->get_child_count(); child_index++) {
+		const Node *child = p_node->get_child(child_index);
+		if (const Button *button = Object::cast_to<Button>(child)) {
+			r_texts.push_back(button->get_text());
+		}
+		collect_button_texts(child, r_texts);
+	}
+}
+
+TEST_CASE("[SceneTree][DataFileInspectorView] No dock buttons, the docks open with the file") {
+	Ref<CSV> data_csv;
+	data_csv.instantiate();
+	REQUIRE(data_csv->parse("name,hp\nknight,100\narcher,80\n") == OK);
+	Ref<CSV> translation_csv;
+	translation_csv.instantiate();
+	REQUIRE(translation_csv->parse("keys,en,de\nHELLO,Hello,Hallo\n") == OK);
+	Ref<INI> ini;
+	ini.instantiate();
+	REQUIRE(ini->parse("[player]\nhp=100\n\n[enemy]\nhp=50\n") == OK);
+	Ref<XML> xml;
+	xml.instantiate();
+	REQUIRE(xml->parse("<units><unit id=\"knight\"/><unit id=\"archer\"/></units>") == OK);
+	Ref<JSON> json;
+	json.instantiate();
+	REQUIRE(json->parse(R"([{"name": "knight"}, {"name": "archer"}])") == OK);
+
+	// Every view is a read-only preview: Validate is its only button, also for files with a table or a dock.
+	DataFileInspectorView *views[] = {
+		memnew(CSVInspectorView(data_csv)),
+		memnew(CSVInspectorView(translation_csv)),
+		memnew(INIInspectorView(ini)),
+		memnew(XMLInspectorView(xml)),
+		memnew(DataFileInspectorView(json)),
+	};
+	for (DataFileInspectorView *view : views) {
+		PackedStringArray texts;
+		collect_button_texts(view, texts);
+		CHECK_MESSAGE(texts == PackedStringArray({ "Validate" }), vformat("%s: %s", view->get_class(), String(", ").join(texts)));
+		memdelete(view);
+	}
+
+	// The dock that opens with each file instead (EditorPlugin::handles()).
+	CHECK(DatasetEditor::can_open_automatically(data_csv.ptr()));
+	CHECK_FALSE(CSVTableEditor::can_edit(data_csv.ptr()));
+	CHECK(CSVTableEditor::can_edit(translation_csv.ptr()));
+	CHECK_FALSE(DatasetEditor::can_open_automatically(translation_csv.ptr()));
+	CHECK(DatasetEditor::can_open_automatically(xml.ptr()));
+	CHECK(DatasetEditor::can_open_automatically(json.ptr()));
+	Ref<TextLocalizationCatalog> catalog;
+	catalog.instantiate();
+	CHECK(CSVTableEditor::can_edit(catalog.ptr()));
+
+	// INI: the INI dock for every INI file with a recognized path, never the Dataset dock.
+	CHECK_FALSE(DatasetEditor::can_open_automatically(ini.ptr()));
+	CHECK_FALSE_MESSAGE(INIEditor::can_edit(ini.ptr()), "No path: nothing to edit and save in the dock.");
+	ini->set_path_cache("res://game.ini");
+	CHECK(INIEditor::can_edit(ini.ptr()));
+	ini->set_path_cache("res://override.cfg");
+	CHECK(INIEditor::can_edit(ini.ptr()));
+	CHECK_FALSE(INIEditor::can_edit(json.ptr()));
+}
+
+TEST_CASE("[DataFileInspectorView] Table search cost on large files") {
+	// The Dataset dock looks for the file's tables when the file opens (DatasetEditor::find_tables()).
 	String csv_text = "name,class,hp\n";
 	for (int i = 0; i < 100000; i++) {
 		csv_text += vformat("unit_%d,warrior,%d\n", i, i % 200);

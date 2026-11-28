@@ -40,7 +40,6 @@
 #include "core/string/translation_server.h"
 #include "editor/docks/editor_dock_manager.h"
 #include "editor/docks/filesystem_dock.h"
-#include "editor/docks/inspector_dock.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
 #include "editor/editor_undo_redo_manager.h"
@@ -1032,16 +1031,6 @@ bool CSVTableEditor::can_edit(const Object *p_object) {
 	return text_file && text_file->get_path().get_extension().to_lower() == "csv";
 }
 
-void CSVTableEditor::_inspector_object_changed() {
-	// Opened with "Open in Localization Table", the dock is not closed by the editor when another file is inspected.
-	// A catalog stays open until another table object replaces it (#391).
-	const Resource *inspected = Object::cast_to<Resource>(InspectorDock::get_inspector_singleton()->get_edited_object());
-	if (catalog.is_null() && inspected && !inspected->get_path().is_empty() && !can_edit(inspected)) {
-		edit(Ref<Resource>());
-		close();
-	}
-}
-
 void CSVTableEditor::_file_moved(const String &p_old_file, const String &p_new_file) {
 	if (!edited_path.is_empty() && p_old_file == edited_path) {
 		edited_path = p_new_file;
@@ -1058,9 +1047,6 @@ void CSVTableEditor::_file_removed(const String &p_file) {
 
 void CSVTableEditor::_notification(int p_what) {
 	if (p_what == NOTIFICATION_READY) {
-		if (InspectorDock::get_singleton()) {
-			InspectorDock::get_inspector_singleton()->connect(SNAME("edited_object_changed"), callable_mp(this, &CSVTableEditor::_inspector_object_changed));
-		}
 		if (FileSystemDock::get_singleton()) {
 			FileSystemDock::get_singleton()->connect(SNAME("files_moved"), callable_mp(this, &CSVTableEditor::_file_moved));
 			FileSystemDock::get_singleton()->connect(SNAME("file_removed"), callable_mp(this, &CSVTableEditor::_file_removed));
@@ -1276,16 +1262,10 @@ bool CSVTableEditorPlugin::handles(Object *p_object) const {
 	return CSVTableEditor::can_edit(p_object);
 }
 
-bool CSVTableEditorPlugin::can_auto_hide() const {
-	// An open catalog keeps the dock while other objects are edited (like #396); it closes with the dock.
-	return !table_editor->is_editing_catalog();
-}
-
 void CSVTableEditorPlugin::make_visible(bool p_visible) {
+	// Opens only: the dock stays at the last table while other objects are edited (ARCHITECTURE.md 7.3).
 	if (p_visible) {
 		table_editor->make_visible();
-	} else {
-		table_editor->close();
 	}
 }
 

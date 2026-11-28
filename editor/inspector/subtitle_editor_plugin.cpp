@@ -378,13 +378,6 @@ void SubtitleEditor::_item_activated() {
 	}
 }
 
-void SubtitleEditor::_open_in_dock() {
-	SubtitlesDock *dock = SubtitlesDock::get_singleton();
-	ERR_FAIL_NULL(dock);
-	dock->edit(subtitle);
-	dock->make_visible();
-}
-
 void SubtitleEditor::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_THEME_CHANGED: {
@@ -429,10 +422,6 @@ SubtitleEditor::SubtitleEditor(const Ref<Subtitle> &p_subtitle) {
 	sort_button = memnew(Button(TTR("Sort by Time")));
 	sort_button->connect(SceneStringName(pressed), callable_mp(this, &SubtitleEditor::_sort_segments));
 	toolbar->add_child(sort_button);
-	Button *dock_button = memnew(Button(TTR("Open in Subtitles Dock")));
-	dock_button->set_tooltip_text(TTR("Edit the cues on a timeline with the waveform of the audio, and spot them while it plays."));
-	dock_button->connect(SceneStringName(pressed), callable_mp(this, &SubtitleEditor::_open_in_dock));
-	toolbar->add_child(dock_button);
 
 	tree = memnew(Tree);
 	tree->set_columns(COLUMN_MAX);
@@ -473,28 +462,11 @@ SubtitleEditor::~SubtitleEditor() {
 // EditorInspectorPluginSubtitle
 
 bool EditorInspectorPluginSubtitle::can_handle(Object *p_object) {
-	return Object::cast_to<Subtitle>(p_object) != nullptr || Object::cast_to<AudioStream>(p_object) != nullptr;
-}
-
-void EditorInspectorPluginSubtitle::_open_stream_in_dock(ObjectID p_stream) {
-	SubtitlesDock *dock = SubtitlesDock::get_singleton();
-	AudioStream *stream = ObjectDB::get_instance<AudioStream>(p_stream);
-	ERR_FAIL_COND(dock == nullptr || stream == nullptr);
-	dock->edit(Ref<AudioStream>(stream));
-	dock->make_visible();
+	return Object::cast_to<Subtitle>(p_object) != nullptr;
 }
 
 void EditorInspectorPluginSubtitle::parse_category(Object *p_object, const String &p_category) {
-	AudioStream *stream = Object::cast_to<AudioStream>(p_object);
-	if (stream != nullptr) {
-		if (p_category == "AudioStream" && !SubtitlesDock::get_stream_subtitle_path(stream).is_empty()) {
-			Button *button = memnew(Button(TTR("Open in Subtitles Dock")));
-			button->set_tooltip_text(TTR("Edit the subtitle file of this stream on a timeline with its waveform."));
-			button->connect(SceneStringName(pressed), callable_mp(this, &EditorInspectorPluginSubtitle::_open_stream_in_dock).bind(stream->get_instance_id()));
-			add_custom_control(button);
-		}
-		return;
-	}
+	// No dock button: the Subtitles dock opens with the subtitle (SubtitleEditorPlugin::handles(), #464).
 	// Below the class header of Subtitle, like the class's own properties.
 	if (p_category != "Subtitle") {
 		return;

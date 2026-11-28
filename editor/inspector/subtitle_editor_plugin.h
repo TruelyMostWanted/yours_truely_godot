@@ -95,7 +95,6 @@ class SubtitleEditor : public VBoxContainer {
 	void _add_segment();
 	void _sort_segments();
 	void _item_activated();
-	void _open_in_dock();
 
 protected:
 	void _notification(int p_what);
@@ -107,8 +106,6 @@ public:
 
 class EditorInspectorPluginSubtitle : public EditorInspectorPlugin {
 	GDCLASS(EditorInspectorPluginSubtitle, EditorInspectorPlugin);
-
-	void _open_stream_in_dock(ObjectID p_stream);
 
 public:
 	virtual bool can_handle(Object *p_object) override;

@@ -133,7 +133,6 @@ class CSVTableEditor : public EditorDock {
 	void _change_page(int p_delta);
 	void _schema_changed(const Ref<Resource> &p_schema);
 	void _tree_gui_input(const Ref<InputEvent> &p_event);
-	void _inspector_object_changed();
 	void _file_moved(const String &p_old_file, const String &p_new_file);
 	void _file_removed(const String &p_file);
 
@@ -149,7 +148,6 @@ public:
 	static bool can_edit(const Object *p_object);
 
 	void edit(const Ref<Resource> &p_resource);
-	bool is_editing_catalog() const { return catalog.is_valid(); }
 
 	CSVTableEditor();
 	~CSVTableEditor();
@@ -164,7 +162,8 @@ public:
 	virtual String get_plugin_name() const override { return "CSVTable"; }
 	virtual void edit(Object *p_object) override;
 	virtual bool handles(Object *p_object) const override;
-	virtual bool can_auto_hide() const override;
+	// The dock stays open while other objects are edited; it closes with its close button.
+	virtual bool can_auto_hide() const override { return false; }
 	virtual void make_visible(bool p_visible) override;
 
 	CSVTableEditorPlugin();

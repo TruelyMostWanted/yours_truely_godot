@@ -36,9 +36,7 @@
 #include "editor/plugins/editor_plugin.h"
 #include "scene/gui/box_container.h"
 
-class Button;
 class CheckBox;
-class HFlowContainer;
 class ItemList;
 class Label;
 class LineEdit;
@@ -47,10 +45,10 @@ class Tree;
 class TreeItem;
 
 // The shared inspector view of a data file (TextDataFormat or JSON): a summary with parse status and schema
-// issues, a read-only preview, Open in Dataset Dock (shared by every format with a table) and Validate. The
+// issues, a read-only preview and Validate, without dock buttons: the docks of a file open by themselves (#464). The
 // default preview is the tree of the format's DataTreeAdapter as Key | Type | Value rows, filled on expand, with
 // search; rows are named in the terms of the format (sections, tables, documents, elements). Each format has its
-// own inspector plugin, which may create its own view (summary, preview, own docks): CSVInspectorView,
+// own inspector plugin, which may create its own view (summary, preview): CSVInspectorView,
 // INIInspectorView, XMLInspectorView, and in their modules YAMLInspectorView and TOMLInspectorView. JSON uses this
 // view as it is. The view handles TextDataFormat and JSON documents (parse error, kept text, validation), because
 // JSON is Godot's class and not a TextDataFormat.
@@ -64,7 +62,6 @@ class DataFileInspectorView : public VBoxContainer {
 
 	Label *summary_label = nullptr;
 	Label *status_label = nullptr;
-	HFlowContainer *button_row = nullptr;
 	Timer *search_timer = nullptr;
 	Timer *update_timer = nullptr;
 	ItemList *issue_list = nullptr;
@@ -77,7 +74,6 @@ class DataFileInspectorView : public VBoxContainer {
 	void _collect_expanded(TreeItem *p_item, HashSet<String> &r_paths) const;
 	void _restore(TreeItem *p_item, const HashSet<String> &p_expanded, const String &p_selected);
 	void _update_tree();
-	void _update_dataset_button();
 	void _queue_update();
 	void _update();
 	void _validate(bool p_force);
@@ -86,7 +82,6 @@ class DataFileInspectorView : public VBoxContainer {
 	void _expand_deferred(ObjectID p_item_id);
 	void _item_selected();
 	void _open_text(int p_line);
-	void _open_in_dataset_dock();
 	void _issue_activated(int p_index);
 	void _raw_toggled(bool p_pressed);
 
@@ -95,17 +90,11 @@ protected:
 
 	Ref<Resource> resource;
 	Ref<DataTreeAdapter> adapter; // The tree of the data, created on each update; null without one (CSV table).
-	Button *dataset_button = nullptr; // Visible when the file has a table (DatasetEditor::find_tables()).
 	LineEdit *search = nullptr;
 	Tree *tree = nullptr;
 	Label *more_label = nullptr;
 
 	int _get_row_height() const;
-	// Adds a button for a dock of the format, before Open in Dataset Dock. For the constructor of a format's view.
-	Button *_add_dock_button(const String &p_text, const String &p_tooltip, const Callable &p_pressed);
-
-	// Per format: shows or hides the format's own dock buttons (_add_dock_button()) for the current data.
-	virtual void _update_dock_buttons() {}
 	// Per format: the preview of `data`, the tree by default.
 	virtual void _update_preview(const Variant &p_data);
 

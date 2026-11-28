@@ -35,8 +35,8 @@
 class DataSchema;
 
 // The inspector view of a CSV: rows and columns in the summary, the first rows as a table whose column titles
-// show the column's field of the data schema, Open in Localization Table Dock (translation CSVs, first) and the
-// shared Open in Dataset Dock. A CSV with the header Path,Key,Value shows the tree of CSVTreeAdapter instead.
+// show the column's field of the data schema. A CSV with the header Path,Key,Value shows the tree of
+// CSVTreeAdapter instead. The Dataset dock (data CSVs) or the Localization Table (translation CSVs) opens with the file.
 class CSVInspectorView : public DataFileInspectorView {
 	GDCLASS(CSVInspectorView, DataFileInspectorView);
 
@@ -44,12 +44,7 @@ class CSVInspectorView : public DataFileInspectorView {
 	static constexpr int PREVIEW_COLUMNS = 32;
 	static constexpr int MAX_CELL_CHARS = 24;
 
-	Button *localization_button = nullptr;
-
-	void _open_in_localization_table_dock();
-
 protected:
-	virtual void _update_dock_buttons() override;
 	virtual void _update_preview(const Variant &p_data) override;
 
 public:

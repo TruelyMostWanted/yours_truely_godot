@@ -70,7 +70,6 @@ class EditorInspectorPluginLocalizationCatalog : public EditorInspectorPlugin {
 	GDCLASS(EditorInspectorPluginLocalizationCatalog, EditorInspectorPlugin);
 
 	void _save_pot(const String &p_path, const Ref<LocalizationCatalog> &p_catalog);
-	static void _open_in_table(const Ref<LocalizationCatalog> &p_catalog);
 
 public:
 	virtual bool can_handle(Object *p_object) override;

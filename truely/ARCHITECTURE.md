@@ -590,15 +590,20 @@ Zusätzliche Anzeigen und Knöpfe im Inspector (Vorschau, Tabelle, „Edit Regio
 `EditorInspectorPlugin`, das über `can_handle()` die Klasse wählt. Properties bleiben normale Properties mit Hints.
 Beispiele: [2.6](#26-editor-plugin-nur-bedienung).
 
+**Keine Dock-Knöpfe im Inspector** („Open in … Dock“): das passende Dock öffnet sich selbst, wenn das Objekt bearbeitet
+wird, über `handles()` und `make_visible()` seines `EditorPlugin` (Abschnitt 7.2, 7.3), wie das Animation-Dock beim
+`AnimationPlayer`. Der Inspector einer Datei ist eine Vorschau; bearbeitet wird im Dock oder im Skript-Editor. Aktionen
+auf der Datei selbst (Validate, Save POT…) bleiben Knöpfe. Das Kontextmenü des FileSystem-Docks behält „Open in …“.
+
 Eine Familie von Klassen (Abschnitt 2.7) bekommt **ein Inspector-Plugin pro Klasse** auf einer gemeinsamen View. Die
-View hält, was alle zeigen (Zusammenfassung, Parse-Status, Prüfung, den Knopf zum gemeinsamen Dock); jede Klasse leitet
-ihre eigene View ab und zeigt, was zu ihr passt, auch die Knöpfe ihrer eigenen Docks. Die gemeinsame View kennt keine
+View hält, was alle zeigen (Zusammenfassung, Parse-Status, Prüfung); jede Klasse leitet ihre eigene View ab und zeigt,
+was zu ihr passt. Die gemeinsame View kennt keine
 einzelne Klasse der Familie. Kein Plugin mit `if`-Ketten über die Klassen. Wird die View in Zeilen umbrochen
 (`HFlowContainer` für Knopfreihen), bleibt der Inspector auch schmal ohne horizontale Bildlaufleiste.
 
 **Truely** · `editor/inspector/data_file_inspector_plugin.h` (#435): `DataFileInspectorView` mit Virtuals für
-Zusammenfassung, Baum, Zeilennamen, Vorschau und eigene Docks (`_add_dock_button()`); `EditorInspectorPluginCSV`
-(Tabelle, Schema der Spalten, Localization Table), `...INI` (Sections, INI-Dock), `...XML` (Elementbaum), `...JSON`
+Zusammenfassung, Baum, Zeilennamen und Vorschau; `EditorInspectorPluginCSV` (Tabelle, Schema der Spalten),
+`...INI` (Sections), `...XML` (Elementbaum), `...JSON`
 (Wertebaum), in ihren Modulen `...YAML` (Dokumente) und `...TOML` (Tabellen).
 
 ```cpp

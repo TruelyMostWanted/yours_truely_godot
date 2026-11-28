@@ -35,7 +35,6 @@
 #include "core/io/json.h"
 #include "core/io/text_data_format.h"
 #include "core/object/callable_mp.h"
-#include "editor/data/dataset_editor.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_node.h"
 #include "editor/editor_string_names.h"
@@ -49,7 +48,6 @@
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/button.h"
 #include "scene/gui/check_box.h"
-#include "scene/gui/flow_container.h"
 #include "scene/gui/item_list.h"
 #include "scene/gui/label.h"
 #include "scene/gui/line_edit.h"
@@ -235,36 +233,6 @@ void DataFileInspectorView::_update_tree() {
 	tree->set_custom_minimum_size(Size2(0, (CLAMP(top_level_count, 3, 14) + 2) * _get_row_height()));
 }
 
-void DataFileInspectorView::_update_dataset_button() {
-	// The Dataset dock is shared by every format with a table (#420, #436); formats add their own docks with
-	// _add_dock_button(). "Open as Text" is in the FileSystem context menu. Runs once per change of the data
-	// (debounced), like the preview; see the unit test "Dataset button cost" for the time on large files.
-	const Vector<DatasetEditor::Table> tables = DatasetEditor::find_tables(resource.ptr());
-	dataset_button->set_visible(!tables.is_empty());
-	String tooltip = TTR("Edit the rows in the Dataset dock.");
-	for (const DatasetEditor::Table &table : tables) {
-		String table_name = String(table.key);
-		if (table.source == DatasetEditor::SOURCE_SECTIONS) {
-			table_name = TTR("Sections");
-		} else if (table.key.get_type() == Variant::NIL) {
-			table_name = TTR("Whole file");
-		} else if (table.source == DatasetEditor::SOURCE_ELEMENTS) {
-			table_name = "<" + table_name + ">";
-		}
-		tooltip += "\n" + vformat(TTRN("%s: %d row", "%s: %d rows", table.row_count), table_name, table.row_count);
-	}
-	dataset_button->set_tooltip_text(tooltip);
-}
-
-Button *DataFileInspectorView::_add_dock_button(const String &p_text, const String &p_tooltip, const Callable &p_pressed) {
-	Button *button = memnew(Button(p_text));
-	button->set_tooltip_text(p_tooltip);
-	button->connect(SceneStringName(pressed), p_pressed);
-	button_row->add_child(button);
-	button_row->move_child(button, dataset_button->get_index());
-	return button;
-}
-
 void DataFileInspectorView::_queue_update() {
 	// Once after a burst of changes (the text editor parses the file again while typing).
 	update_timer->start();
@@ -289,8 +257,6 @@ void DataFileInspectorView::_update() {
 	const Variant file_data = format.is_valid() ? format->get_data() : json->get_data();
 	adapter = DataTreeAdapter::create_for(resource); // Again: a CSV gets a tree when its header becomes Path,Key,Value.
 	summary_label->set_text(vformat("%s: %s", resource->get_class(), get_summary_text(file_data)));
-	_update_dataset_button();
-	_update_dock_buttons();
 	_update_preview(file_data);
 
 	TreeItem *root = tree->get_root();
@@ -408,14 +374,6 @@ void DataFileInspectorView::_open_text(int p_line) {
 	}
 }
 
-void DataFileInspectorView::_open_in_dataset_dock() {
-	DatasetEditor *dataset_editor = DatasetEditor::get_singleton();
-	if (dataset_editor && DatasetEditor::can_edit(resource.ptr())) {
-		dataset_editor->edit(resource);
-		dataset_editor->make_visible();
-	}
-}
-
 void DataFileInspectorView::_issue_activated(int p_index) {
 	_open_text(issue_list->get_item_metadata(p_index));
 }
@@ -457,19 +415,12 @@ DataFileInspectorView::DataFileInspectorView(const Ref<Resource> &p_resource) {
 	status_label->set_custom_minimum_size(Size2(100, 0) * EDSCALE);
 	add_child(status_label);
 
-	// Wraps in a narrow Inspector (a format may add its own dock buttons before Open in Dataset Dock).
-	button_row = memnew(HFlowContainer);
-	add_child(button_row);
-
-	dataset_button = memnew(Button(TTR("Open in Dataset Dock")));
-	dataset_button->hide();
-	dataset_button->connect(SceneStringName(pressed), callable_mp(this, &DataFileInspectorView::_open_in_dataset_dock));
-	button_row->add_child(dataset_button);
-
+	// No dock buttons: the docks of the file open by themselves when it is edited (#464).
 	Button *validate_button = memnew(Button(TTR("Validate")));
 	validate_button->set_tooltip_text(TTR("Check the data against the data schema listed for this file (project setting filesystem/data/schema_files)."));
 	validate_button->connect(SceneStringName(pressed), callable_mp(this, &DataFileInspectorView::_validate).bind(true));
-	button_row->add_child(validate_button);
+	validate_button->set_h_size_flags(SIZE_SHRINK_BEGIN);
+	add_child(validate_button);
 
 	issue_list = memnew(ItemList);
 	issue_list->set_auto_height(true);

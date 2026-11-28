@@ -1307,7 +1307,7 @@ void DatasetEditor::_update() {
 	schema_label->set_visible(source == SOURCE_CSV);
 	schema_picker->set_visible(source == SOURCE_CSV);
 	if (!file) {
-		empty_label->set_text(TTR("Open a CSV file, or a JSON, YAML, TOML, INI or XML file with table-shaped data: double-click it in the FileSystem dock, or use \"Open in Dataset Dock\" in its context menu or in the Inspector."));
+		empty_label->set_text(TTR("Open a CSV file, or a JSON, YAML, TOML, INI or XML file with table-shaped data: double-click it in the FileSystem dock, or use \"Open in Dataset Dock\" in its context menu."));
 		page_label->set_text(String());
 		previous_button->set_disabled(true);
 		next_button->set_disabled(true);
