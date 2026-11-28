@@ -208,12 +208,26 @@ if [ "${#carried[@]}" -gt 0 ]; then
 fi
 
 cat <<EOF
+## Downloads
+
+The same set of files as a Godot release. \`*\` stands for the release name (\`Truely-v<truely>_Godot<godot>-<status>_<hash>\`); the .NET (C#) files end in \`_dotnet\`.
+
+| Platform | Editor | Editor, .NET |
+|---|---|---|
+| Windows x86_64, x86_32, arm64 | \`*_windows-x86_64.zip\`, \`*_windows-x86_32.zip\`, \`*_windows-arm64.zip\` | \`*_windows-<arch>_dotnet.zip\` |
+| Linux x86_64, x86_32, arm64, arm32 | \`*_linux-x86_64.zip\`, \`*_linux-x86_32.zip\`, \`*_linux-arm64.zip\`, \`*_linux-arm32.zip\` | \`*_linux-<arch>_dotnet.zip\` |
+| macOS (Intel and Apple Silicon) | \`*_macos-universal.zip\` | \`*_macos-universal_dotnet.zip\` |
+| Android, Horizon OS, PICO OS | \`*_android-editor.apk\`, \`*_android-editor-horizonos.apk\`, \`*_android-editor-picoos.apk\` | – |
+| Web | \`*_web-editor.zip\` | – |
+| **Export templates** | \`*_export-templates.tpz\`: Windows and Linux (all architectures), macOS, Android (APKs and \`android_source.zip\`), iOS, Web (with and without threads and GDExtension) | \`*_export-templates_dotnet.tpz\`: the same without Web |
+| **Checksums** | \`SHA512-SUMS.txt\` (\`sha512sum -c SHA512-SUMS.txt\`) | |
+
 ## Install
 
-- **Editors:** \`*_windows-x86_64.zip\`, \`*_linux-x86_64.zip\`, \`*_macos-universal.zip\`, and the same ending in \`_dotnet\` for C# (.NET). Unzip and keep the folder together.
-- **Self-contained:** every editor folder contains a \`._sc_\` file. Settings, caches and export templates stay in that folder, so this build and the official Godot of the same version never overwrite each other's templates.
-- **Export templates:** \`*_export-templates.tpz\` and \`*_export-templates_dotnet.tpz\` (Windows, Linux, macOS, Web with and without threads). In the editor: Editor → Manage Export Templates → Install from File.
-- **macOS:** the builds are not signed or notarized. First start: right-click Godot.app → Open. For the self-contained mode, run \`xattr -dr com.apple.quarantine <folder>\` once, otherwise macOS starts the app from a random path and does not find \`._sc_\`.
+- **Desktop editors:** unzip and keep the folder together.
+- **Self-contained:** every desktop editor folder contains a \`._sc_\` file. Settings, caches and export templates stay in that folder, so this build and the official Godot of the same version never overwrite each other's templates.
+- **Export templates:** in the editor: Editor → Manage Export Templates → Install from File, then pick the \`.tpz\` of the same variant as the editor.
+- **Unsigned:** no file is signed for a store. macOS: first start with right-click Godot.app → Open; for the self-contained mode, run \`xattr -dr com.apple.quarantine <folder>\` once, otherwise macOS starts the app from a random path and does not find \`._sc_\`. Android: the editor APKs carry a debug key; allow installing from unknown sources. iOS: sign the exported Xcode project with your own team.
 - **.NET (C#):** needs the .NET SDK 10 or newer. The editor brings its own Godot NuGet packages (\`GodotSharp/Tools/nupkgs\`). The Web export has no C# support.
 
 EOF

@@ -17,6 +17,8 @@ from pathlib import Path
 RANGE_FOR_TEMPORARIES = re.compile(r'for\s*\(\s*const\s+(String|StringName|NodePath)\s*&\s*\w+\s*:\s*\{\s*"')
 # P3: names that are macros in MinGW's Windows headers.
 MINGW_MACRO_NAMES = re.compile(r"\b(?:float|double|real_t|int|bool)\s+(near|far)\b")
+# P12: names that are macros in system headers of some platform (Emscripten/musl limits.h, GCC/Clang predefines).
+SYSTEM_MACRO_NAMES = re.compile(r"\b(PAGE_SIZE|PAGESIZE)\b|\b(?:float|double|int|bool|auto|String)\s+(linux|unix)\b")
 # P4: a `static` free function; in an SCU build the .cpp files of a folder become one unit.
 STATIC_FUNCTION = re.compile(r"^static\s+(?:inline\s+)?[\w:<>,\s\*&]+?\b(\w+)\s*\(", re.MULTILINE)
 # P5: a local variable that is only the target of std::move (-Wunused-but-set-variable in Clang).
@@ -106,6 +108,12 @@ def check(paths: list[Path]) -> list[str]:
         for m in MINGW_MACRO_NAMES.finditer(code):
             line = code.count("\n", 0, m.start()) + 1
             findings.append(f"{path}:{line}: P3 `{m.group(1)}` is a MinGW macro; rename it (e.g. {m.group(1)}_value)")
+        for m in SYSTEM_MACRO_NAMES.finditer(code):
+            line = code.count("\n", 0, m.start()) + 1
+            name = m.group(1) or m.group(2)
+            findings.append(
+                f"{path}:{line}: P12 `{name}` is a macro in system headers (Web, Linux); use a prefixed name"
+            )
         for m in MOVE_TARGET.finditer(code):
             name = m.group(1)
             before = code[: m.start()].split("\n")[-30:]

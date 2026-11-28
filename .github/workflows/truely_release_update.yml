@@ -1,9 +1,11 @@
 name: 📦 Truely Release Update
 
 # Publishes or updates a release from the artifacts of a finished "Truely Release" run, without
-# building again: for releases whose macOS jobs were not assigned a runner (capacity). With
-# `partial`, missing macOS builds are left out; re-run the missing jobs of that run later and start
-# this workflow again to add them to the same release post (files are replaced with --clobber).
+# building again: for releases whose macOS or iOS jobs were not assigned a runner (capacity), and to
+# add new files to an existing post without a new tag (a `dry_run` of "Truely Release" with `ref` =
+# the released commit, then this workflow with its run ID; the files of the post are replaced with
+# --clobber and its notes kept). With `partial`, missing macOS and iOS builds are left out; re-run the
+# missing jobs of that run later and start this workflow again to add them to the same release post.
 # `replace_tag` moves an existing release post (e.g. the previous pre-release) to the new version:
 # new tag, title and notes, its old files removed.
 on:
@@ -19,7 +21,7 @@ on:
         type: string
         default: ""
       partial:
-        description: Leave out macOS builds that are missing
+        description: Leave out macOS and iOS builds that are missing
         type: boolean
         default: true
 
@@ -39,14 +41,38 @@ jobs:
   publish:
     name: 📦 Publish
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
+      # The builds (about 6 GB) plus the packed files do not fit next to the preinstalled tools.
+      - name: Free disk space
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+
+      - name: Download artifacts of the run
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      # The built commit: truely-commit.txt of the run (#419); older runs: its headSha, which is the
+      # default branch for runs started by workflow_run.
       - name: Commit of the run
         id: run
         run: |
-          sha="$(gh run view "${{ inputs.run_id }}" -R "$GITHUB_REPOSITORY" --json headSha --jq .headSha)"
+          if [ -f artifacts/truely-commit.txt ]; then
+            sha="$(tr -d '[:space:]' < artifacts/truely-commit.txt)"
+          else
+            sha="$(gh run view "${{ inputs.run_id }}" -R "$GITHUB_REPOSITORY" --json headSha --jq .headSha)"
+          fi
+          echo "Commit $sha"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "SHA=$sha" >> "$GITHUB_ENV"
+
+      # Keep the downloaded artifacts: checkout cleans the workspace.
+      - name: Move the artifacts aside
+        run: mv artifacts "$RUNNER_TEMP/artifacts"
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -58,10 +84,12 @@ jobs:
       - name: Scripts of this workflow
         run: |
           mkdir -p "$RUNNER_TEMP/truely"
-          for f in package-release.sh verify-release.py; do
+          for f in package-release.sh verify-release.py release-notes.sh; do
             git show "$GITHUB_SHA:.github/truely/$f" > "$RUNNER_TEMP/truely/$f"
           done
           echo "TOOLS=$RUNNER_TEMP/truely" >> "$GITHUB_ENV"
+          echo "ARTIFACTS=$RUNNER_TEMP/artifacts" >> "$GITHUB_ENV"
+          if [ "${{ inputs.partial }}" = "true" ]; then echo "PARTIAL=1" >> "$GITHUB_ENV"; fi
 
       - name: Compute names
         run: |
@@ -80,36 +108,27 @@ jobs:
               f.write(f"TAG=truely-v{truely}-godot{base}\nTITLE=Truely v{truely} (Godot {pretty}, {sha})\n")
           PY
 
-      - name: Download artifacts of the run
-        uses: actions/download-artifact@v8
-        with:
-          pattern: release-*
-          path: artifacts
-          merge-multiple: true
-          run-id: ${{ inputs.run_id }}
-          github-token: ${{ github.token }}
-
       - name: Check the version string
         run: |
-          chmod +x artifacts/godot.linuxbsd.*
-          [ "$(./artifacts/godot.linuxbsd.editor.x86_64 --version | tail -n 1)" = "$CONFIG.truely.${SHA:0:9}" ]
-          [ "$(./artifacts/godot.linuxbsd.editor.x86_64 --truely-version | tail -n 1)" = "$TRUELY" ]
+          chmod +x "$ARTIFACTS"/godot.linuxbsd.*
+          [ "$("$ARTIFACTS/godot.linuxbsd.editor.x86_64" --version | tail -n 1)" = "$CONFIG.truely.${SHA:0:9}" ]
+          [ "$("$ARTIFACTS/godot.linuxbsd.editor.x86_64" --truely-version | tail -n 1)" = "$TRUELY" ]
 
       - name: Package
         run: |
-          if [ "${{ inputs.partial }}" = "true" ]; then export PARTIAL=1; fi
-          DIST="$PWD/misc/dist" bash "$TOOLS/package-release.sh" artifacts release "$NAME" "$CONFIG"
+          DIST="$PWD/misc/dist" bash "$TOOLS/package-release.sh" "$ARTIFACTS" release "$NAME" "$CONFIG"
 
       - name: Verify release files
         run: python3 "$TOOLS/verify-release.py" release "$NAME" "$CONFIG"
 
       - name: Release notes
         run: |
-          bash .github/truely/release-notes.sh "$SHA" "$TAG" "$CONFIG" > notes.md
+          bash "$TOOLS/release-notes.sh" "$SHA" "$TAG" "$CONFIG" > notes.md
           missing=""
           for m in "" ".mono"; do
-            [ -e "artifacts/godot.macos.editor.universal$m" ] || missing="$missing macOS${m:+ (.NET)}"
+            [ -e "$ARTIFACTS/godot.macos.editor.universal$m" ] || missing="$missing macOS${m:+ (.NET)}"
           done
+          [ -e "$ARTIFACTS/ios.zip" ] || missing="$missing iOS templates"
           if [ -n "$missing" ]; then
             printf '\n> [!NOTE]\n> Not included yet:%s. These files follow as soon as GitHub assigns a macOS runner.\n' "$missing" >> notes.md
           fi

@@ -58,7 +58,7 @@ class Tree;
 class CSVTableEditor : public EditorDock {
 	GDCLASS(CSVTableEditor, EditorDock);
 
-	static constexpr int PAGE_SIZE = 500;
+	static constexpr int CSV_TABLE_PAGE_ROWS = 500;
 	static inline CSVTableEditor *singleton = nullptr;
 
 	Ref<CSV> csv;

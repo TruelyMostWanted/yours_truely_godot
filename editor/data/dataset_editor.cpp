@@ -730,7 +730,7 @@ void DatasetEditor::_add_row(bool p_insert) {
 	}
 	const TreeItem *selected = table_view->get_selected();
 	const int row = p_insert && selected ? (int)selected->get_metadata(0) : _get_row_count();
-	file->page = row / PAGE_SIZE;
+	file->page = row / DATASET_PAGE_ROWS;
 	if (source == SOURCE_CSV) {
 		if (csv->get_column_count() == 0) {
 			// An empty row of an empty CSV writes no text, so nothing would be added.
@@ -1346,10 +1346,10 @@ void DatasetEditor::_render() {
 	updating = true;
 	const int row_count = _get_row_count();
 	const int column_count = MAX(_get_column_count(), 1);
-	const int page_count = MAX(1, (row_count + PAGE_SIZE - 1) / PAGE_SIZE);
+	const int page_count = MAX(1, (row_count + DATASET_PAGE_ROWS - 1) / DATASET_PAGE_ROWS);
 	file->page = CLAMP(file->page, 0, page_count - 1);
-	const int first = file->page * PAGE_SIZE;
-	const int last = MIN(first + PAGE_SIZE, row_count);
+	const int first = file->page * DATASET_PAGE_ROWS;
+	const int last = MIN(first + DATASET_PAGE_ROWS, row_count);
 	const bool json = _is_json();
 
 	if (table_view->get_columns() != column_count + 1) {

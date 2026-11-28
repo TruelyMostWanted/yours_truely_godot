@@ -77,7 +77,7 @@ public:
 		int row_count = 0;
 	};
 
-	static constexpr int PAGE_SIZE = 500;
+	static constexpr int DATASET_PAGE_ROWS = 500;
 	// Larger files open as text only on double-click; "Open in Dataset Dock" opens them anyway (#420).
 	static constexpr int64_t AUTO_OPEN_SIZE = 4 * 1024 * 1024;
 

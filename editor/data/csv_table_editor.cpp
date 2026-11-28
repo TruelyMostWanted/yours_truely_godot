@@ -291,10 +291,10 @@ void CSVTableEditor::_render_catalog() {
 	updating = true;
 	const int row_count = catalog->get_key_count();
 	const int column_count = catalog_fields.size();
-	const int page_count = MAX(1, (row_count + PAGE_SIZE - 1) / PAGE_SIZE);
+	const int page_count = MAX(1, (row_count + CSV_TABLE_PAGE_ROWS - 1) / CSV_TABLE_PAGE_ROWS);
 	page = CLAMP(page, 0, page_count - 1);
-	const int first = page * PAGE_SIZE;
-	const int last = MIN(first + PAGE_SIZE, row_count);
+	const int first = page * CSV_TABLE_PAGE_ROWS;
+	const int last = MIN(first + CSV_TABLE_PAGE_ROWS, row_count);
 
 	if (tree->get_columns() != column_count + 1) {
 		tree->clear();
@@ -576,10 +576,10 @@ void CSVTableEditor::_render() {
 	updating = true;
 	const int row_count = csv->get_row_count();
 	const int column_count = MAX(csv->get_column_count(), 1);
-	const int page_count = MAX(1, (row_count + PAGE_SIZE - 1) / PAGE_SIZE);
+	const int page_count = MAX(1, (row_count + CSV_TABLE_PAGE_ROWS - 1) / CSV_TABLE_PAGE_ROWS);
 	page = CLAMP(page, 0, page_count - 1);
-	const int first = page * PAGE_SIZE;
-	const int last = MIN(first + PAGE_SIZE, row_count);
+	const int first = page * CSV_TABLE_PAGE_ROWS;
+	const int last = MIN(first + CSV_TABLE_PAGE_ROWS, row_count);
 
 	const PackedStringArray header = csv->get_header();
 	if (tree->get_columns() != column_count + 1) {
@@ -768,7 +768,7 @@ void CSVTableEditor::_add_row(bool p_insert) {
 		undo_redo->add_do_method(catalog.ptr(), "add_key", key);
 		undo_redo->add_undo_method(catalog.ptr(), "remove_key", key);
 		undo_redo->commit_action();
-		page = (catalog->get_key_count() - 1) / PAGE_SIZE;
+		page = (catalog->get_key_count() - 1) / CSV_TABLE_PAGE_ROWS;
 		return;
 	}
 	if (csv.is_null() || !_can_edit()) {
@@ -788,7 +788,7 @@ void CSVTableEditor::_add_row(bool p_insert) {
 	undo_redo->add_do_method(csv.ptr(), "insert_row", row, cells);
 	undo_redo->add_undo_method(csv.ptr(), "remove_row", row);
 	undo_redo->commit_action();
-	page = row / PAGE_SIZE;
+	page = row / CSV_TABLE_PAGE_ROWS;
 }
 
 void CSVTableEditor::_remove_rows() {

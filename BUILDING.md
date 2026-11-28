@@ -173,6 +173,8 @@ scons platform=linuxbsd target=template_release
 scons platform=macos target=template_release arch=arm64
 ```
 
+Other architectures with `arch=`: Windows `x86_32` and `arm64` (the x86 and ARM64 tools of Visual Studio), Linux `arm64` (natively on an ARM machine), `x86_32` (`gcc-multilib g++-multilib`) and `arm32` (a cross GCC such as `g++-arm-linux-gnueabihf`, as `gcc`/`g++`/`ar` on `PATH`). The release workflow builds them this way.
+
 Web (needs Emscripten in the shell: `source ./emsdk_env.sh` or `emsdk_env.bat`); the Web has no .NET support:
 
 ```bash
@@ -196,12 +198,14 @@ The Windows builds come with a `.console.exe`; keep it as `windows_debug_x86_64_
 
 | Built file in `bin/` | Name in the templates folder |
 |---|---|
-| `godot.windows.template_debug.x86_64.exe` | `windows_debug_x86_64.exe` |
+| `godot.windows.template_debug.x86_64.exe` | `windows_debug_x86_64.exe` (also `x86_32`, `arm64`) |
 | `godot.windows.template_release.x86_64.exe` | `windows_release_x86_64.exe` |
-| `godot.linuxbsd.template_release.x86_64` | `linux_release.x86_64` |
+| `godot.linuxbsd.template_release.x86_64` | `linux_release.x86_64` (also `.x86_32`, `.arm64`, `.arm32`) |
 | `godot.web.template_release.wasm32.zip` | `web_release.zip` |
 | `godot.web.template_release.wasm32.nothreads.zip` | `web_nothreads_release.zip` |
-| `android_release.apk`, `android_source.zip` (from Gradle) | same names |
+| `godot.web.template_release.wasm32.dlink.zip` (`dlink_enabled=yes`, GDExtension) | `web_dlink_release.zip` (`web_dlink_nothreads_release.zip` without threads) |
+| `android_release.apk`, `android_source.zip` (from Gradle; .NET: `android_monoRelease.apk`) | `android_release.apk`, `android_source.zip` |
+| `godot_ios.zip` (`generate_bundle=yes`) | `ios.zip` |
 
 | Editor mode | Templates folder |
 |---|---|
@@ -249,4 +253,4 @@ Feature checks in GDScript and C# for every feature of this fork are in the [god
 
 ## Download instead
 
-Ready builds of the editors (standard and .NET, Windows, Linux, macOS) and export templates (Windows, Linux, macOS, Web) are on the [releases page](https://github.com/TruelyMostWanted/truelymostwanted-godot-engine/releases). Release files are named `Truely-v<truely>_Godot<godot>-<status>_<hash>_<platform>`, e.g. `Truely-v0.1.0_Godot4.8-beta5_f031fd0_win64.zip`; the [wiki page Releases](https://github.com/TruelyMostWanted/truelymostwanted-godot-engine/wiki/Releases) explains the names and the version number.
+Ready builds are on the [releases page](https://github.com/TruelyMostWanted/truelymostwanted-godot-engine/releases), the same set as a Godot release: editors (standard and .NET) for Windows x86_64/x86_32/arm64, Linux x86_64/x86_32/arm64/arm32 and macOS universal, the Android editor (also for Horizon OS and PICO OS) and the Web editor, export templates for Windows, Linux, macOS, Android, iOS and the Web (the .NET pack without the Web), and `SHA512-SUMS.txt`. None of them is signed for a store. Release files are named `Truely-v<truely>_Godot<godot>-<status>_<hash>_<platform>-<arch>[_dotnet]`, e.g. `Truely-v0.2.1_Godot4.8-beta5_f031fd0_windows-arm64_dotnet.zip`; the [wiki page Releases](https://github.com/TruelyMostWanted/truelymostwanted-godot-engine/wiki/Releases) explains the names and the version number. The workflow `.github/workflows/truely_release.yml` shows how each file is built (runners, SCons flags, Gradle tasks, packaging).

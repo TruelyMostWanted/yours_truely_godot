@@ -40,6 +40,7 @@ Hooks nie mit `--no-verify` umgehen. Schlägt ein Hook fehl, die Ursache beheben
 | P9 | Thread-Code ohne `threads=no`-Annahme: im Web gibt es Builds ohne Threads; Bibliotheken mit eigener Thread-Konfiguration (libvpx) entsprechend schalten. | Web „Template w/o threads“ (#214). | – |
 | P10 | Ressourcen in `finish()`/Destruktoren freigeben: Listen leeren, Nodes `memdelete`n, keine globalen `Ref`s übrig lassen. | ASan/LSan in „Editor with … sanitizers“ (#214, #375). | – |
 | P11 | Upstream-Dateien nur minimal ändern und die Stelle kommentieren; lieber eigene Datei. | Merge-Konflikte beim Sync, Upstream-Warnungsniveau gilt auch für unsere Zeilen. | – |
+| P12 | Keine Bezeichner, die in System-Headern einer Plattform Makros sind: `PAGE_SIZE`/`PAGESIZE` (`limits.h` von Emscripten/musl), `linux`/`unix` (GCC/Clang). Konstanten mit Datei-Präfix benennen (`SQLITE_TABLE_PAGE_ROWS`). | Web-Editor: `expected unqualified-id` bei `static constexpr int PAGE_SIZE` (#419, Release-Dry-Run 2026-11-28). | ja |
 
 ---
 
@@ -79,3 +80,5 @@ Hooks nie mit `--no-verify` umgehen. Schlägt ein Hook fehl, die Ursache beheben
 | `truely/version.txt` vor dem Release erhöhen (PATCH für Fixes, MINOR für Features); `truely/godot-status.txt` passt zur Godot-Basis. | Das Skript bricht bei einem vorhandenen Tag ab. |
 | Release-Builds ohne SCons-Cache. | Der Cache lieferte alte Objekte mit altem Versions-Header. |
 | Der `workflow_run` von „Truely Release“ meldet als `headSha` den Standard-Branch, nicht den Release-Commit. | Zuordnung von Läufen über die Zeit, nicht über den SHA (0.2.0). |
+| Cross-Toolchains (arm32: `gcc`→`arm-linux-gnueabihf-gcc` über `PATH`) erst **nach** `godot-deps` einrichten. | pip baut `zstandard` für neue Python-Versionen aus dem Quelltext mit dem `gcc` aus `PATH`; der Cross-gcc kennt `-mno-omit-leaf-frame-pointer` nicht (#419, Dry-Run 2026-11-28). |
+| Jeder Job, der `gradlew` in `platform/android/java` aufruft, braucht `godot-deps` (SCons im `PATH`), auch wenn nur fertige Bibliotheken gepackt werden. | `lib/build.gradle` sucht `scons` beim Konfigurieren: „Unable to find executable path for the 'scons' command“ (#419). Die Zeile `digest-mismatch: error` im Log ist nur ein Parameter von `download-artifact`, nicht der Fehler. |

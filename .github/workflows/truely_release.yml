@@ -1,15 +1,26 @@
 name: 📦 Truely Release
-# truely-godot-engine: builds the editors (standard and .NET) and the export templates of all desktop
-# platforms and the Web, packs them and publishes a GitHub release.
+# truely-godot-engine: builds the same set of files as an official Godot release, packs them and
+# publishes a GitHub release (#419):
+#   - desktop editors, standard and .NET: Windows x86_64/x86_32/arm64, Linux x86_64/x86_32/arm64/arm32,
+#     macOS universal
+#   - Android editor APKs (Android, Horizon OS, PICO OS) and the Web editor (standard only, like Godot)
+#   - export templates, standard and .NET: Windows and Linux (all architectures), macOS, Android
+#     (APKs and android_source.zip), iOS (ios.zip), Web with/without threads and GDExtension (standard only)
+#   - SHA512-SUMS.txt
+# All files are unsigned (macOS ad-hoc signature, Android editor with the debug key, like a local build).
 # Starts by itself after a green "🔗 GHA" run on the release branch truely-godot-engine-releases
 # (fast-forwarded from truely-godot-engine by truely/release.ps1), built from the exact commit that
 # run tested, but only if files other than Markdown and .agents/ changed since the last release tag
-# (truely-v* or the older truely-godot*). By hand (workflow_dispatch) it always releases the selected commit.
-# Names: Truely-v<truely>_Godot<godot>-<status>_<hash>_<platform>, tag truely-v<truely>-godot<godot>-<status>,
+# (truely-v* or the older truely-godot*). By hand (workflow_dispatch) it always releases the selected
+# commit (or `ref`). `dry_run` builds and packs only: it uploads the release files as the artifact
+# "truely-release-files" and publishes nothing, also on feature branches; truely_release_update.yml
+# can publish such a run later (e.g. new files for an existing post, without a new tag).
+# Names: Truely-v<truely>_Godot<godot>-<status>_<hash>_<platform>-<arch>[_dotnet], tag truely-v<truely>-godot<godot>-<status>,
 # e.g. Truely-v0.2.0_Godot4.8-beta5_f031fd0_windows-x86_64.zip and tag truely-v0.1.0-godot4.8-beta5.
 # The Truely version (SemVer) comes from truely/version.txt, the status of the Godot base (e.g. beta5)
 # from truely/godot-status.txt. A tag that already exists on another commit stops the release: raise
 # truely/version.txt first. Releases before #265 keep their names (Truely_Godot..., truely-godot...).
+# Apple runners are scarce (#334): macOS is one job per variant, iOS one job for both variants.
 on:
   workflow_run:
     workflows: ["🔗 GHA"]
@@ -21,19 +32,27 @@ on:
         description: Create the release as a draft
         type: boolean
         default: false
+      dry_run:
+        description: Build and pack only, upload the files as an artifact, publish nothing
+        type: boolean
+        default: false
+      ref:
+        description: Commit, tag or branch to build (default the selected branch); the workflow and its scripts stay those of the selected branch
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: truely-release
+  group: truely-release${{ inputs.dry_run && '-dry-run' || '' }}
   cancel-in-progress: false
 
 # Release builds never restore the shared SCons cache: cached objects of version-dependent files
 # carried old version strings into new builds.
 env:
-  # The commit to release: the one the CI run tested, or the selected commit when started by hand.
-  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  # The commit to release: the one the CI run tested, else `ref`, else the selected commit.
+  REF: ${{ github.event.workflow_run.head_sha || inputs.ref || github.sha }}
   BUILD_NAME: truely
   SCONS_FLAGS: production=yes debug_symbols=no
   PYTHONIOENCODING: utf8
@@ -47,6 +66,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       release: ${{ steps.check.outputs.release }}
+      sha: ${{ steps.commit.outputs.sha }}
       status: ${{ steps.names.outputs.status }}
       truely: ${{ steps.names.outputs.truely }}
       config: ${{ steps.names.outputs.config }}
@@ -57,8 +77,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.SHA }}
+          ref: ${{ env.REF }}
           fetch-depth: 0
+
+      - name: Commit to release
+        id: commit
+        run: |
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "SHA=$sha" >> "$GITHUB_ENV"
+          echo "$sha" > truely-commit.txt
+          echo "Releasing $sha"
 
       # Skip releases that would only change documentation: Markdown files and .agents/.
       # Class reference changes (doc/classes/*.xml) are API docs and do count.
@@ -119,8 +148,9 @@ jobs:
 
       # One release per Truely version: the tag has no hash, so an existing tag on another commit
       # means truely/version.txt was not raised. Stop instead of overwriting or skipping silently.
+      # A dry run publishes nothing, so it may build any commit.
       - name: Check that the version is new
-        if: steps.check.outputs.release == 'true'
+        if: steps.check.outputs.release == 'true' && !inputs.dry_run
         env:
           TAG: ${{ steps.names.outputs.tag }}
         run: |
@@ -132,17 +162,29 @@ jobs:
             fi
           fi
 
+      # The commit of this run for truely_release_update.yml (headSha of a workflow_run run is the
+      # default branch, and `ref` may name another commit).
+      - name: Upload the commit
+        if: steps.check.outputs.release == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-commit
+          path: truely-commit.txt
+
   linux:
-    name: 🐧 Linux ${{ matrix.target }}${{ matrix.mono && ' (.NET)' || '' }}
+    name: 🐧 Linux ${{ matrix.arch }} ${{ matrix.target }}${{ matrix.mono && ' (.NET)' || '' }}
     needs: setup
     if: needs.setup.outputs.release == 'true'
-    runs-on: ubuntu-24.04
+    # arm64 builds natively; x86_32 (multilib) and arm32 (cross GCC) on x86_64, like Godot's -m32 and cross setups.
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 240
     env:
+      SHA: ${{ needs.setup.outputs.sha }}
       GODOT_VERSION_STATUS: ${{ needs.setup.outputs.status }}
     strategy:
       fail-fast: false
       matrix:
+        arch: [x86_64, x86_32, arm64, arm32]
         target: [editor, template_debug, template_release]
         mono: [false, true]
     steps:
@@ -152,16 +194,35 @@ jobs:
           ref: ${{ env.SHA }}
           submodules: recursive
 
+      # Before the cross toolchain is on PATH: pip may build wheels (zstandard) from source with the host gcc.
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+        with:
+          python-arch: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
+
       - name: Setup dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install libwayland-bin
-
-      - name: Setup Python and SCons
-        uses: ./.github/actions/godot-deps
+          sudo apt-get install -y libwayland-bin
+          case "${{ matrix.arch }}" in
+            x86_32)
+              sudo apt-get install -y gcc-multilib g++-multilib
+              ;;
+            arm32)
+              sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf
+              # SCons calls gcc, g++, as, ar and ranlib by their plain names: point them at the cross toolchain.
+              mkdir -p "$RUNNER_TEMP/cross"
+              for t in gcc g++ cpp as ld ar ranlib nm strip objcopy; do
+                ln -sf "/usr/bin/arm-linux-gnueabihf-$t" "$RUNNER_TEMP/cross/$t"
+              done
+              ln -sf /usr/bin/arm-linux-gnueabihf-gcc "$RUNNER_TEMP/cross/cc"
+              ln -sf /usr/bin/arm-linux-gnueabihf-g++ "$RUNNER_TEMP/cross/c++"
+              echo "$RUNNER_TEMP/cross" >> "$GITHUB_PATH"
+              ;;
+          esac
 
       - name: Setup .NET SDK
-        if: matrix.mono && matrix.target == 'editor'
+        if: matrix.mono && matrix.target == 'editor' && matrix.arch == 'x86_64'
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
@@ -172,11 +233,13 @@ jobs:
       - name: Compilation
         run: |
           if [ "${{ matrix.target }}" != "editor" ]; then rm -rf editor; fi
-          scons platform=linuxbsd target=${{ matrix.target }} $SCONS_FLAGS module_mono_enabled=${{ matrix.mono && 'yes' || 'no' }} accesskit=yes
+          gcc --version | head -n 1
+          scons platform=linuxbsd arch=${{ matrix.arch }} target=${{ matrix.target }} $SCONS_FLAGS module_mono_enabled=${{ matrix.mono && 'yes' || 'no' }} accesskit=yes
 
-      # Glue and assemblies for all three editors, built here like the official release scripts do.
+      # Glue and assemblies for all three desktop platforms, built once (they are the same for every
+      # architecture), like the official release scripts do.
       - name: Generate C# glue and build .NET assemblies
-        if: matrix.mono && matrix.target == 'editor'
+        if: matrix.mono && matrix.target == 'editor' && matrix.arch == 'x86_64'
         run: |
           ./bin/godot.linuxbsd.editor.x86_64.mono --headless --generate-mono-glue ./modules/mono/glue
           # The .NET projects write to ./bin/GodotSharp (fixed path), so build one platform at a time.
@@ -188,6 +251,7 @@ jobs:
             mv ./bin/GodotSharp "./sharp/$platform/GodotSharp"
           done
 
+      # strip is the cross strip for arm32 (PATH above).
       - name: Prepare artifact
         run: |
           rm -rf ./bin/build_deps ./bin/obj
@@ -196,27 +260,30 @@ jobs:
       - name: Upload artifact
         uses: ./.github/actions/upload-artifact
         with:
-          name: release-linux-${{ matrix.target }}${{ matrix.mono && '-mono' || '' }}
+          name: release-linux-${{ matrix.arch }}-${{ matrix.target }}${{ matrix.mono && '-mono' || '' }}
           path: bin/godot.*
 
       - name: Upload GodotSharp
-        if: matrix.mono && matrix.target == 'editor'
+        if: matrix.mono && matrix.target == 'editor' && matrix.arch == 'x86_64'
         uses: ./.github/actions/upload-artifact
         with:
           name: release-godotsharp
           path: sharp/
 
   windows:
-    name: 🏁 Windows ${{ matrix.target }}${{ matrix.mono && ' (.NET)' || '' }}
+    name: 🏁 Windows ${{ matrix.arch }} ${{ matrix.target }}${{ matrix.mono && ' (.NET)' || '' }}
     needs: setup
     if: needs.setup.outputs.release == 'true'
+    # MSVC on x86_64 builds all three architectures (x86 and ARM64 cross tools of Visual Studio).
     runs-on: windows-latest
     timeout-minutes: 240
     env:
+      SHA: ${{ needs.setup.outputs.sha }}
       GODOT_VERSION_STATUS: ${{ needs.setup.outputs.status }}
     strategy:
       fail-fast: false
       matrix:
+        arch: [x86_64, x86_32, arm64]
         target: [editor, template_debug, template_release]
         mono: [false, true]
     steps:
@@ -229,6 +296,7 @@ jobs:
       - name: Setup Python and SCons
         uses: ./.github/actions/godot-deps
 
+      # The scripts download the libraries of every architecture.
       - name: Download Direct3D 12 SDK, ANGLE and AccessKit
         shell: bash
         run: |
@@ -240,7 +308,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.target }}" != "editor" ]; then rm -rf editor; fi
-          scons platform=windows target=${{ matrix.target }} $SCONS_FLAGS module_mono_enabled=${{ matrix.mono && 'yes' || 'no' }} d3d12=yes angle=yes accesskit=yes
+          scons platform=windows arch=${{ matrix.arch }} target=${{ matrix.target }} $SCONS_FLAGS module_mono_enabled=${{ matrix.mono && 'yes' || 'no' }} d3d12=yes angle=yes accesskit=yes
 
       - name: Prepare artifact
         shell: bash
@@ -251,7 +319,7 @@ jobs:
       - name: Upload artifact
         uses: ./.github/actions/upload-artifact
         with:
-          name: release-windows-${{ matrix.target }}${{ matrix.mono && '-mono' || '' }}
+          name: release-windows-${{ matrix.arch }}-${{ matrix.target }}${{ matrix.mono && '-mono' || '' }}
           path: bin/godot.*
 
   macos:
@@ -263,6 +331,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 300
     env:
+      SHA: ${{ needs.setup.outputs.sha }}
       GODOT_VERSION_STATUS: ${{ needs.setup.outputs.status }}
     strategy:
       fail-fast: false
@@ -307,13 +376,69 @@ jobs:
           name: release-macos${{ matrix.mono && '-mono' || '' }}
           path: out/godot.*
 
+  ios:
+    # One job for both variants (Apple runner capacity, #334): device arm64 and simulator
+    # arm64 + x86_64, debug and release, packed by generate_bundle=yes into the Xcode project of
+    # misc/dist/apple_embedded_xcode (bin/godot_ios.zip), like Godot's ios.zip. Unsigned.
+    name: 🍏 iOS (standard and .NET)
+    needs: setup
+    if: needs.setup.outputs.release == 'true'
+    runs-on: macos-26
+    timeout-minutes: 330
+    env:
+      SHA: ${{ needs.setup.outputs.sha }}
+      GODOT_VERSION_STATUS: ${{ needs.setup.outputs.status }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+          submodules: recursive
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      # The Vulkan SDK brings MoltenVK.xcframework, which generate_bundle copies into ios.zip.
+      - name: Download AccessKit and the Vulkan SDK
+        run: |
+          python ./misc/scripts/install_accesskit.py
+          sh misc/scripts/install_vulkan_sdk_macos.sh
+
+      - name: Compilation (standard, then .NET)
+        run: |
+          mkdir -p out
+          for mono in no yes; do
+            # The libraries of both variants have the same names: start each variant from an empty set.
+            rm -f bin/libgodot.ios.* bin/godot_ios*.zip
+            for target in template_debug template_release; do
+              FLAGS="platform=ios target=$target $SCONS_FLAGS module_mono_enabled=$mono accesskit=yes"
+              scons $FLAGS arch=arm64
+              scons $FLAGS arch=arm64 simulator=yes
+              bundle=no
+              if [ "$target" = "template_release" ]; then bundle=yes; fi
+              # The last build of a variant lipos all libraries into the xcframeworks and zips them.
+              scons $FLAGS arch=x86_64 simulator=yes generate_bundle=$bundle
+            done
+            suffix=""
+            [ "$mono" = no ] || suffix=".mono"
+            mv bin/godot_ios.zip "out/ios$suffix.zip"
+          done
+          ls -l out
+
+      - name: Upload artifacts
+        uses: ./.github/actions/upload-artifact
+        with:
+          name: release-ios
+          path: out/ios*.zip
+
   web:
-    name: 🌐 Web ${{ matrix.target }}${{ matrix.threads == 'no' && ' (no threads)' || '' }}
+    name: 🌐 Web ${{ matrix.target }}${{ matrix.threads == 'no' && ' (no threads)' || '' }}${{ matrix.dlink == 'yes' && ' (GDExtension)' || '' }}
     needs: setup
     if: needs.setup.outputs.release == 'true'
     runs-on: ubuntu-26.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
+      SHA: ${{ needs.setup.outputs.sha }}
       GODOT_VERSION_STATUS: ${{ needs.setup.outputs.status }}
       EM_VERSION: 6.0.12
     strategy:
@@ -321,6 +446,12 @@ jobs:
       matrix:
         target: [template_debug, template_release]
         threads: ["yes", "no"]
+        dlink: ["no", "yes"]
+        include:
+          # The Web editor (web_editor.zip in a Godot release) needs threads.
+          - target: editor
+            threads: "yes"
+            dlink: "no"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -339,23 +470,206 @@ jobs:
 
       - name: Compilation
         run: |
-          rm -rf editor
-          scons platform=web target=${{ matrix.target }} $SCONS_FLAGS threads=${{ matrix.threads }} use_closure_compiler=yes
+          if [ "${{ matrix.target }}" != "editor" ]; then rm -rf editor; fi
+          scons platform=web target=${{ matrix.target }} $SCONS_FLAGS threads=${{ matrix.threads }} dlink_enabled=${{ matrix.dlink }} use_closure_compiler=yes
 
       - name: Upload artifact
         uses: ./.github/actions/upload-artifact
         with:
-          name: release-web-${{ matrix.target }}-threads-${{ matrix.threads }}
+          name: release-web-${{ matrix.target }}-threads-${{ matrix.threads }}-dlink-${{ matrix.dlink }}
           path: bin/godot.web.*.zip
+
+  android-editor:
+    # Like android_builds.yml: SCons builds the native libraries (arm64 and x86_64), Gradle packs the
+    # editor APKs for Android, Horizon OS and PICO OS (debug key, no store signing).
+    name: 🤖 Android editor
+    needs: setup
+    if: needs.setup.outputs.release == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 240
+    env:
+      SHA: ${{ needs.setup.outputs.sha }}
+      GODOT_VERSION_STATUS: ${{ needs.setup.outputs.status }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+          submodules: recursive
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Download AccessKit and Swappy
+        run: |
+          python ./misc/scripts/install_accesskit.py
+          python ./misc/scripts/install_swappy_android.py
+
+      - name: Compilation
+        run: |
+          for arch in arm64 x86_64; do
+            scons platform=android target=editor arch=$arch $SCONS_FLAGS swappy=yes accesskit=yes
+          done
+
+      - name: Generate the editor APKs
+        run: |
+          cd platform/android/java
+          ./gradlew generateGodotEditor
+          ./gradlew generateGodotHorizonOSEditor
+          ./gradlew generateGodotPicoOSEditor
+          cd ../../..
+          ls -l bin/android_editor_builds/
+          # Godot's release names: android_editor.apk, android_editor_horizonos.apk, android_editor_picoos.apk.
+          mkdir -p out/android-editor
+          for distro in android horizonos picoos; do
+            files=(bin/android_editor_builds/android_editor-"$distro"-*.apk)
+            if [ "${#files[@]}" -ne 1 ] || [ ! -f "${files[0]}" ]; then
+              echo "::error::Expected one $distro editor APK, found: ${files[*]}"
+              exit 1
+            fi
+            suffix="_$distro"
+            [ "$distro" != android ] || suffix=""
+            cp "${files[0]}" "out/android-editor/android_editor$suffix.apk"
+          done
+          ls -l out/android-editor
+
+      - name: Upload artifact
+        uses: ./.github/actions/upload-artifact
+        with:
+          name: release-android-editor
+          path: out/
+
+  android-templates:
+    # Native libraries of the Android templates, all four ABIs per job; packed by android-gradle.
+    name: 🤖 Android ${{ matrix.target }}${{ matrix.mono && ' (.NET)' || '' }}
+    needs: setup
+    if: needs.setup.outputs.release == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 240
+    env:
+      SHA: ${{ needs.setup.outputs.sha }}
+      GODOT_VERSION_STATUS: ${{ needs.setup.outputs.status }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [template_debug, template_release]
+        mono: [false, true]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+          submodules: recursive
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Download AccessKit and Swappy
+        run: |
+          python ./misc/scripts/install_accesskit.py
+          python ./misc/scripts/install_swappy_android.py
+
+      - name: Compilation
+        run: |
+          rm -rf editor
+          for arch in arm32 arm64 x86_32 x86_64; do
+            scons platform=android target=${{ matrix.target }} arch=$arch $SCONS_FLAGS module_mono_enabled=${{ matrix.mono && 'yes' || 'no' }} swappy=yes accesskit=yes
+          done
+          find platform/android/java/lib/libs -type f | sort
+
+      - name: Upload native libraries
+        uses: ./.github/actions/upload-artifact
+        with:
+          name: android-libs-${{ matrix.mono && 'mono' || 'standard' }}-${{ matrix.target }}
+          path: platform/android/java/lib/libs/
+
+  android-gradle:
+    # android_debug.apk, android_release.apk and android_source.zip per variant, from the native
+    # libraries of android-templates (generateGodotTemplates / generateGodotMonoTemplates).
+    name: 🤖 Android templates${{ matrix.edition == 'mono' && ' (.NET)' || '' }}
+    needs: [setup, android-templates]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    env:
+      SHA: ${{ needs.setup.outputs.sha }}
+      GODOT_VERSION_STATUS: ${{ needs.setup.outputs.status }}
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [standard, mono]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # lib/build.gradle looks up scons while configuring, even though the template tasks exclude the scons builds.
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Download native libraries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: android-libs-${{ matrix.edition }}-*
+          path: platform/android/java/lib/libs
+          merge-multiple: true
+
+      - name: Generate the templates
+        run: |
+          find platform/android/java/lib/libs -type f | sort
+          cd platform/android/java
+          if [ "${{ matrix.edition }}" = mono ]; then
+            ./gradlew generateGodotMonoTemplates
+            debug=android_monoDebug.apk
+            release=android_monoRelease.apk
+          else
+            ./gradlew generateGodotTemplates
+            debug=android_debug.apk
+            release=android_release.apk
+          fi
+          cd ../../..
+          ls -l bin/
+          # The export looks for android_debug.apk and android_release.apk in both template packs.
+          out="out/android-${{ matrix.edition }}"
+          mkdir -p "$out"
+          cp "bin/$debug" "$out/android_debug.apk"
+          cp "bin/$release" "$out/android_release.apk"
+          cp bin/android_source.zip "$out/android_source.zip"
+          ls -l "$out"
+
+      - name: Upload artifact
+        uses: ./.github/actions/upload-artifact
+        with:
+          name: release-android-${{ matrix.edition }}
+          path: out/
 
   package:
     name: 📦 Package and release
-    needs: [setup, linux, windows, macos, web]
+    needs: [setup, linux, windows, macos, ios, web, android-editor, android-gradle]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write
     env:
+      SHA: ${{ needs.setup.outputs.sha }}
       NAME: ${{ needs.setup.outputs.name }}
       CONFIG: ${{ needs.setup.outputs.config }}
       TRUELY: ${{ needs.setup.outputs.truely }}
@@ -363,11 +677,27 @@ jobs:
       TITLE: ${{ needs.setup.outputs.title }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      # The builds (about 6 GB) plus the packed files do not fit next to the preinstalled tools.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
           fetch-depth: 0
+
+      # The packaging scripts come from this workflow's commit (`ref` may name an older commit).
+      - name: Scripts of this workflow
+        run: |
+          mkdir -p "$RUNNER_TEMP/truely"
+          for f in package-release.sh verify-release.py release-notes.sh; do
+            git show "$GITHUB_SHA:.github/truely/$f" > "$RUNNER_TEMP/truely/$f"
+          done
+          echo "TOOLS=$RUNNER_TEMP/truely" >> "$GITHUB_ENV"
 
       - name: Download artifacts
         uses: actions/download-artifact@v8
@@ -388,19 +718,34 @@ jobs:
           [ "$actual" = "$TRUELY" ]
 
       - name: Package
-        run: bash .github/truely/package-release.sh artifacts release "$NAME" "$CONFIG"
+        run: |
+          DIST="$PWD/misc/dist" bash "$TOOLS/package-release.sh" artifacts release "$NAME" "$CONFIG"
+          rm -rf artifacts
+          ls -l release
+          df -h /
 
       # Nothing is published when a package is broken: .NET packages of the wrong version,
-      # executables of another platform (e.g. a Linux apphost in the Windows zip), wrong version.txt.
+      # executables of another platform or architecture, missing templates, wrong version.txt or checksums.
       - name: Verify release files
-        run: python3 .github/truely/verify-release.py release "$NAME" "$CONFIG"
+        run: python3 "$TOOLS/verify-release.py" release "$NAME" "$CONFIG"
 
       - name: Release notes
         run: |
-          bash .github/truely/release-notes.sh "$SHA" "$TAG" "$CONFIG" > notes.md
+          bash "$TOOLS/release-notes.sh" "$SHA" "$TAG" "$CONFIG" > notes.md
           cat notes.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Upload the release files (dry run)
+        if: inputs.dry_run
+        uses: actions/upload-artifact@v7
+        with:
+          name: truely-release-files
+          path: |
+            release/
+            notes.md
+          retention-days: 7
+
       - name: Create release
+        if: ${{ !inputs.dry_run }}
         run: |
           # Only stable releases become "Latest"; everything else is a pre-release.
           flags="--prerelease --latest=false"
