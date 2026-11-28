@@ -1359,7 +1359,8 @@ void SubtitlesDock::_resources_reloaded(const Vector<String> &p_files) {
 	}
 	subtitle->set_edited(false); // The resource matches the file again.
 	_update();
-	status_label->set_text(TTR("The file changed on disk and was reloaded. Undo brings back the segments from before."));
+	// Deferred: the update queued by the reload itself runs first and would replace the message.
+	callable_mp(status_label, &Label::set_text).call_deferred(TTR("The file changed on disk and was reloaded. Undo brings back the segments from before."));
 	if (had_changes) {
 		EditorToaster::get_singleton()->popup_str(vformat(TTR("%s changed on disk and was reloaded, replacing the unsaved changes in the Subtitles dock. Undo brings them back."), subtitle->get_path().get_file()), EditorToaster::SEVERITY_WARNING);
 	}
@@ -1567,7 +1568,7 @@ SubtitlesDock::SubtitlesDock() {
 	toolbar->add_child(memnew(VSeparator));
 
 	stream_picker = memnew(EditorResourcePicker);
-	stream_picker->set_base_type("AudioStream");
+	stream_picker->set_base_type("AudioStream,VideoStream");
 	stream_picker->set_custom_minimum_size(Size2(100, 0) * EDSCALE);
 	stream_picker->set_tooltip_text(TTR("The audio for the waveform and playback. Found as an audio file with the subtitle's name, or the stream the dock was opened for; a stream picked here is not saved."));
 	stream_picker->connect("resource_changed", callable_mp(this, &SubtitlesDock::_stream_picked));
