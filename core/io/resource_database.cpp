@@ -341,11 +341,14 @@ Error ResourceDatabase::_collect(const Ref<Preloads> &p_preloads, Job *r_job) {
 }
 
 void ResourceDatabase::_run_job(Job *p_job) {
+	const uint32_t total = p_job->paths.size();
 	for (const Pair<String, String> &path : p_job->paths) {
 		const Error err = _load_and_store(path.first, path.second);
 		if (err != OK && p_job->error == OK) {
 			p_job->error = err;
 		}
+		const uint32_t loaded = p_job->loaded_count.increment();
+		callable_mp(this, &ResourceDatabase::_emit_preload_progress).call_deferred(p_job->preloads, int(loaded), int(total));
 	}
 	_apply_keys(p_job->keys);
 }
@@ -380,18 +383,24 @@ void ResourceDatabase::_emit_preload_finished(const Ref<Preloads> &p_preloads, i
 	emit_signal(SNAME("preload_finished"), p_preloads, p_error);
 }
 
-Error ResourceDatabase::preload_from(const Ref<Preloads> &p_preloads, bool p_use_threads) {
-	ERR_FAIL_COND_V_MSG(p_preloads.is_null(), ERR_INVALID_PARAMETER, "The preloads are null.");
-	bool is_finished = false;
-	{
-		MutexLock jobs_lock(jobs_mutex);
-		is_finished = finished;
+void ResourceDatabase::_emit_preload_progress(const Ref<Preloads> &p_preloads, int p_loaded, int p_total) {
+	emit_signal(SNAME("preload_progress"), p_preloads, LoadProgress::create_counted(p_loaded, p_total));
+}
+
+Ref<LoadProgress> ResourceDatabase::get_preload_progress() const {
+	MutexLock jobs_lock(jobs_mutex);
+	uint64_t loaded = 0;
+	uint64_t total = 0;
+	for (const KeyValue<uint64_t, Job *> &job : jobs) {
+		loaded += job.value->loaded_count.get();
+		total += job.value->paths.size();
 	}
-	ERR_FAIL_COND_V_MSG(is_finished, ERR_UNAVAILABLE, "ResourceDatabase is shutting down.");
+	return LoadProgress::create_counted(int(loaded), int(total));
+}
 
+// Direct references: stored now, under their path or their name.
+Error ResourceDatabase::_store_direct_resources(const Ref<Preloads> &p_preloads) {
 	Error first_error = OK;
-
-	// Direct references: stored now, under their path or their name.
 	const TypedArray<Resource> resources = p_preloads->get_resources();
 	for (int i = 0; i < resources.size(); i++) {
 		const Ref<Resource> resource = resources[i];
@@ -408,6 +417,69 @@ Error ResourceDatabase::preload_from(const Ref<Preloads> &p_preloads, bool p_use
 		}
 		add_resource(key, resource);
 	}
+	return first_error;
+}
+
+void ResourceDatabase::begin_preload_steps(const Ref<Preloads> &p_preloads, PreloadSteps &r_steps) {
+	ERR_FAIL_COND_MSG(p_preloads.is_null(), "The preloads are null.");
+	bool is_finished = false;
+	{
+		MutexLock jobs_lock(jobs_mutex);
+		is_finished = finished;
+	}
+	ERR_FAIL_COND_MSG(is_finished, "ResourceDatabase is shutting down.");
+	r_steps.preloads = p_preloads;
+	r_steps.error = _store_direct_resources(p_preloads);
+	Job job;
+	const Error collect_error = _collect(p_preloads, &job);
+	if (r_steps.error == OK) {
+		r_steps.error = collect_error;
+	}
+	r_steps.paths = job.paths;
+	r_steps.keys = job.keys;
+}
+
+bool ResourceDatabase::step_preload(PreloadSteps &r_steps) {
+	if (r_steps.done || r_steps.preloads.is_null()) {
+		return false;
+	}
+	if (r_steps.index < r_steps.paths.size()) {
+		const Pair<String, String> &path = r_steps.paths[r_steps.index];
+		const Error err = _load_and_store(path.first, path.second);
+		if (err != OK && r_steps.error == OK) {
+			r_steps.error = err;
+		}
+		r_steps.index++;
+	}
+	if (r_steps.index < r_steps.paths.size()) {
+		return true;
+	}
+	r_steps.done = true;
+	_apply_keys(r_steps.keys);
+	callable_mp(this, &ResourceDatabase::_emit_preload_finished).call_deferred(r_steps.preloads, int(r_steps.error));
+	return false;
+}
+
+int ResourceDatabase::get_preload_total(const Ref<Preloads> &p_preloads) const {
+	MutexLock jobs_lock(jobs_mutex);
+	for (const KeyValue<uint64_t, Job *> &job : jobs) {
+		if (job.value->preloads == p_preloads) {
+			return int(job.value->paths.size());
+		}
+	}
+	return 0;
+}
+
+Error ResourceDatabase::preload_from(const Ref<Preloads> &p_preloads, bool p_use_threads) {
+	ERR_FAIL_COND_V_MSG(p_preloads.is_null(), ERR_INVALID_PARAMETER, "The preloads are null.");
+	bool is_finished = false;
+	{
+		MutexLock jobs_lock(jobs_mutex);
+		is_finished = finished;
+	}
+	ERR_FAIL_COND_V_MSG(is_finished, ERR_UNAVAILABLE, "ResourceDatabase is shutting down.");
+
+	Error first_error = _store_direct_resources(p_preloads);
 
 	Job *job = memnew(Job);
 	job->preloads = p_preloads;
@@ -666,7 +738,9 @@ void ResourceDatabase::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("get_memory_usage"), &ResourceDatabase::get_memory_usage);
 	ClassDB::bind_method(D_METHOD("is_preloading"), &ResourceDatabase::is_preloading);
+	ClassDB::bind_method(D_METHOD("get_preload_progress"), &ResourceDatabase::get_preload_progress);
 
+	ADD_SIGNAL(MethodInfo("preload_progress", PropertyInfo(Variant::OBJECT, "preloads", PROPERTY_HINT_RESOURCE_TYPE, "Preloads"), PropertyInfo(Variant::OBJECT, "progress", PROPERTY_HINT_RESOURCE_TYPE, "LoadProgress")));
 	ADD_SIGNAL(MethodInfo("preload_finished", PropertyInfo(Variant::OBJECT, "preloads", PROPERTY_HINT_RESOURCE_TYPE, "Preloads"), PropertyInfo(Variant::INT, "error", PROPERTY_HINT_NONE, String(), PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_CLASS_IS_ENUM, "Error")));
 }
 

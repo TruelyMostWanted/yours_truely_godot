@@ -34,9 +34,11 @@ TEST_FORCE_LINK(test_resource_database)
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
+#include "core/io/load_progress.h"
 #include "core/io/resource_database.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_text_serializer.h"
+#include "core/object/callable_mp.h"
 #include "core/object/message_queue.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
@@ -236,6 +238,222 @@ TEST_CASE("[ResourceDatabase] Preload list: resources, paths, manifest, keys; lo
 	ResourceLoader::remove_resource_format_loader(loader);
 	DirAccess::remove_absolute(root.path_join("from_manifest.dbcount"));
 	DirAccess::remove_absolute(root);
+}
+
+static LocalVector<int> recorded_loaded;
+static LocalVector<int> recorded_total;
+static LocalVector<float> recorded_ratio;
+
+static void _record_progress(const Ref<Preloads> &, const Ref<LoadProgress> &p_progress) {
+	recorded_loaded.push_back(p_progress->get_loaded_count());
+	recorded_total.push_back(p_progress->get_total_count());
+	recorded_ratio.push_back(p_progress->get_ratio());
+}
+
+TEST_CASE("[ResourceDatabase] preload_progress per loaded file, then preload_finished") {
+	ResourceDatabase *db = ResourceDatabase::get_singleton();
+	REQUIRE(db);
+	db->clear();
+	Ref<CountingLoader> loader;
+	loader.instantiate();
+	ResourceLoader::add_resource_format_loader(loader);
+
+	const Ref<LoadProgress> idle = db->get_preload_progress();
+	CHECK(idle->is_finished()); // Nothing preloads.
+	CHECK(idle->get_ratio() == doctest::Approx(1.0));
+
+	recorded_loaded.clear();
+	recorded_total.clear();
+	recorded_ratio.clear();
+	db->connect("preload_progress", callable_mp_static(&_record_progress));
+
+	Ref<Preloads> list;
+	list.instantiate();
+	list->set_paths(PackedStringArray({ "res://db_p1.dbcount", "res://db_p2.dbcount" }));
+	CHECK(db->preload_from(list, false) == OK);
+	MessageQueue::get_singleton()->flush();
+	REQUIRE(recorded_loaded.size() == 2);
+	CHECK(recorded_loaded[0] == 1);
+	CHECK(recorded_loaded[1] == 2);
+	CHECK(recorded_total[0] == 2);
+	CHECK(recorded_ratio[0] == doctest::Approx(0.5));
+	CHECK(recorded_ratio[1] == doctest::Approx(1.0));
+
+	// Threaded: the last emission is complete and the poll value is complete again once finished.
+	recorded_loaded.clear();
+	recorded_total.clear();
+	recorded_ratio.clear();
+	Ref<Preloads> list2;
+	list2.instantiate();
+	list2->set_paths(PackedStringArray({ "res://db_p3.dbcount" }));
+	CHECK(db->preload_from(list2, true) == OK);
+	_wait_for_preloads(db);
+	MessageQueue::get_singleton()->flush();
+	REQUIRE(recorded_ratio.size() == 1);
+	CHECK(recorded_loaded[0] == 1);
+	CHECK(recorded_ratio[0] == doctest::Approx(1.0));
+	CHECK(db->get_preload_progress()->is_finished());
+
+	db->disconnect("preload_progress", callable_mp_static(&_record_progress));
+	db->clear();
+	ResourceLoader::remove_resource_format_loader(loader);
+}
+
+TEST_CASE("[ResourceLoader] Manifest load status: counts, ratio, stepwise and result") {
+	Ref<CountingLoader> loader;
+	loader.instantiate();
+	ResourceLoader::add_resource_format_loader(loader);
+
+	const String root = OS::get_singleton()->get_cache_path().path_join("test_manifest_progress");
+	DirAccess::make_dir_recursive_absolute(root);
+	for (int idx = 0; idx < 3; idx++) {
+		Ref<FileAccess> f = FileAccess::open(root.path_join(vformat("file%d.dbcount", idx)), FileAccess::WRITE);
+		REQUIRE(f.is_valid());
+		f->store_string("x");
+	}
+	Ref<FilesManifest> manifest;
+	manifest.instantiate();
+	manifest->set_folder_paths(PackedStringArray({ root }));
+	manifest->set_extensions(PackedStringArray({ ".dbcount" }));
+
+	// A status call is a pure query: nothing is requested or loaded by it.
+	Ref<LoadProgress> status = manifest->load_threaded_get_status_resources();
+	CHECK(status->get_total_count() == 3);
+	CHECK(status->get_loaded_count() == 0);
+	CHECK(loader->loads.get() == 0);
+
+	REQUIRE(manifest->load_threaded_request_resources() == OK);
+	for (int frame = 0; frame < 2000; frame++) {
+		status = manifest->load_threaded_step_resources();
+		CHECK(status->get_total_count() == 3);
+		CHECK(status->get_ratio() <= 1.0f);
+		if (status->is_finished()) {
+			break;
+		}
+		OS::get_singleton()->delay_usec(500);
+	}
+	REQUIRE(status.is_valid());
+	CHECK(status->is_finished());
+	CHECK(status->get_loaded_count() == 3);
+	CHECK(status->get_ratio() == doctest::Approx(1.0));
+
+	const Dictionary result = manifest->load_threaded_get_resources();
+	CHECK(result.size() == 3);
+	CHECK(loader->loads.get() == 3);
+
+	// After the result was taken, a status call does not request the files again.
+	status = manifest->load_threaded_get_status_resources();
+	CHECK(status->get_loaded_count() == 0);
+	CHECK(loader->loads.get() == 3);
+
+	const Ref<LoadProgress> empty = Ref<FilesManifest>(memnew(FilesManifest))->load_threaded_get_status_resources();
+	CHECK(empty->get_total_count() == 0);
+	CHECK(empty->is_finished());
+
+	ResourceLoader::remove_resource_format_loader(loader);
+	for (int idx = 0; idx < 3; idx++) {
+		DirAccess::remove_absolute(root.path_join(vformat("file%d.dbcount", idx)));
+	}
+	DirAccess::remove_absolute(root);
+}
+
+TEST_CASE("[ResourceLoader] Manifest paths are cached per request; the step method advances the load") {
+	Ref<CountingLoader> loader;
+	loader.instantiate();
+	ResourceLoader::add_resource_format_loader(loader);
+
+	// The files of a manifest have to exist: real (tiny) files, the loader fakes their content.
+	const String root = OS::get_singleton()->get_cache_path().path_join("test_manifest_steps");
+	DirAccess::make_dir_recursive_absolute(root);
+	PackedStringArray files;
+	for (int idx = 0; idx < 3; idx++) {
+		const String file = root.path_join(vformat("step%d.dbcount", idx));
+		Ref<FileAccess> f = FileAccess::open(file, FileAccess::WRITE);
+		REQUIRE(f.is_valid());
+		f->store_string("x");
+		files.push_back(file);
+	}
+
+	Ref<FilesManifest> manifest;
+	manifest.instantiate();
+	manifest->set_file_paths(PackedStringArray({ files[0], files[1] }));
+	CHECK(manifest->load_threaded_get_status_resources()->get_total_count() == 2);
+	// A changed property resets the cache.
+	manifest->set_file_paths(files);
+	CHECK(manifest->load_threaded_get_status_resources()->get_total_count() == 3);
+
+	REQUIRE(manifest->load_threaded_request_resources() == OK);
+	Ref<LoadProgress> progress;
+	for (int frame = 0; frame < 2000; frame++) {
+		progress = manifest->load_threaded_step_resources(); // Advances without threads, only asks with threads.
+		if (progress->is_finished()) {
+			break;
+		}
+		OS::get_singleton()->delay_usec(500);
+	}
+	CHECK(progress->is_finished());
+	CHECK(progress->get_loaded_count() == 3);
+	CHECK(manifest->load_threaded_get_resources().size() == 3);
+	CHECK(loader->loads.get() == 3);
+
+	// The result was taken: neither status nor step requests the files again.
+	CHECK(manifest->load_threaded_get_status_resources()->get_loaded_count() == 0);
+	CHECK(loader->loads.get() == 3);
+
+	ResourceLoader::remove_resource_format_loader(loader);
+	for (const String &file : files) {
+		DirAccess::remove_absolute(file);
+	}
+	DirAccess::remove_absolute(root);
+}
+
+TEST_CASE("[ResourceDatabase] Preload steps load one file per step and finish once") {
+	ResourceDatabase *db = ResourceDatabase::get_singleton();
+	REQUIRE(db);
+	db->clear();
+	Ref<CountingLoader> loader;
+	loader.instantiate();
+	ResourceLoader::add_resource_format_loader(loader);
+
+	Ref<Preloads> preloads;
+	preloads.instantiate();
+	preloads->set_paths(PackedStringArray({ "res://steps_a.dbcount", "res://steps_b.dbcount" }));
+	Dictionary keys;
+	keys["first"] = "res://steps_a.dbcount";
+	preloads->set_keys(keys);
+
+	ResourceDatabase::PreloadSteps steps;
+	db->begin_preload_steps(preloads, steps);
+	CHECK(steps.paths.size() == 2);
+	CHECK(steps.index == 0);
+
+	SIGNAL_WATCH(db, "preload_finished");
+	CHECK(db->step_preload(steps));
+	CHECK(steps.index == 1);
+	CHECK(loader->loads.get() == 1);
+	CHECK_FALSE(db->has_resource("first")); // Keys are applied after the last file.
+	CHECK_FALSE(db->step_preload(steps));
+	CHECK(steps.index == 2);
+	CHECK(steps.done);
+	CHECK(db->has_resource("first"));
+	CHECK(steps.error == OK);
+	CHECK_FALSE(db->step_preload(steps)); // After the end nothing happens again.
+	MessageQueue::get_singleton()->flush();
+	SIGNAL_CHECK("preload_finished", _finished_args(preloads)); // Emitted once.
+	SIGNAL_UNWATCH(db, "preload_finished");
+	CHECK(loader->loads.get() == 2);
+
+	// Empty preloads finish at the first step.
+	Ref<Preloads> empty;
+	empty.instantiate();
+	ResourceDatabase::PreloadSteps empty_steps;
+	db->begin_preload_steps(empty, empty_steps);
+	CHECK_FALSE(db->step_preload(empty_steps));
+	CHECK(empty_steps.done);
+	MessageQueue::get_singleton()->flush();
+
+	ResourceLoader::remove_resource_format_loader(loader);
+	db->clear();
 }
 
 struct ThreadData {

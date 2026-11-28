@@ -32,6 +32,7 @@
 
 #include "core/debugger/engine_profiler.h"
 #include "core/io/files_manifest.h"
+#include "core/io/load_progress.h"
 #include "core/io/logger.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_result.h"
@@ -112,6 +113,9 @@ public:
 	PackedStringArray get_manifest_paths(const Ref<FilesManifest> &p_manifest);
 	Dictionary load_manifest(const Ref<FilesManifest> &p_manifest, CacheMode p_cache_mode = CACHE_MODE_REUSE);
 	Error load_threaded_request_manifest(const Ref<FilesManifest> &p_manifest, bool p_use_sub_threads = false, CacheMode p_cache_mode = CACHE_MODE_REUSE);
+	Ref<LoadProgress> load_threaded_get_manifest_status(const Ref<FilesManifest> &p_manifest);
+	Ref<LoadProgress> load_threaded_step_manifest(const Ref<FilesManifest> &p_manifest);
+	Dictionary load_threaded_get_manifest(const Ref<FilesManifest> &p_manifest);
 
 	Error register_extension_loader(const String &p_extension, const Callable &p_loader, const StringName &p_type = "Resource", bool p_at_front = false);
 	Error unregister_extension_loader(const String &p_extension);

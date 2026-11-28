@@ -30,8 +30,10 @@
 
 #pragma once
 
+#include "core/io/load_progress.h"
 #include "core/io/resource.h"
 #include "core/io/resource_loader_constants.h"
+#include "core/templates/hash_map.h"
 #include "core/templates/hash_set.h"
 #include "core/templates/local_vector.h"
 
@@ -49,10 +51,23 @@ class FilesManifest : public Resource {
 	bool recursive = true;
 	bool create_missing_folders = false;
 
+	// Paths resolved for the threaded load (one folder scan per request, not per status call).
+	mutable PackedStringArray load_paths;
+	mutable bool load_paths_cached = false;
+	mutable bool load_active = false; // Between a request and the result.
+#ifndef THREADS_ENABLED
+	// Without threads the status calls load one file each; their results wait here for `load_threaded_get_resources()`.
+	mutable HashMap<String, Ref<Resource>> loaded_without_threads;
+	mutable int load_step = 0;
+	mutable bool load_use_sub_threads = false;
+	mutable ResourceLoaderConstants::CacheMode load_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE;
+#endif
+
 	static void _split_folder_path(const String &p_folder_path, String &r_base, Vector<String> &r_pattern);
 	void _collect_folder(const String &p_folder, int p_depth, PackedStringArray &r_paths) const;
 	bool _type_matches(const String &p_path) const;
 	String _get_load_type_hint() const;
+	const PackedStringArray &_get_load_paths(Error *r_error = nullptr) const;
 
 protected:
 	static void _bind_methods();
@@ -105,4 +120,13 @@ public:
 	Dictionary load_resources(ResourceLoaderConstants::CacheMode p_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE, Error *r_error = nullptr) const;
 	// Starts a threaded load for every path, see `ResourceLoader::load_threaded_request()`.
 	Error load_threaded_request_resources(bool p_use_sub_threads = false, ResourceLoaderConstants::CacheMode p_cache_mode = ResourceLoaderConstants::CACHE_MODE_REUSE) const;
+	// Progress of the threaded load: files loaded, total, and the ratio including the files still loading. A pure
+	// query on every build. Main thread only (the manifest keeps the resolved paths of the request).
+	Ref<LoadProgress> load_threaded_get_status_resources() const;
+	// Advances the load. With threads it does nothing (the workers load) and returns the status. Without threads
+	// (Web) the request loaded nothing: each call loads one more requested file (one blocking step) and returns the
+	// status, so calling it every frame advances the load step by step.
+	Ref<LoadProgress> load_threaded_step_resources() const;
+	// Returns path -> Resource of the requested files (waits for those still loading); paths that fail are left out.
+	Dictionary load_threaded_get_resources() const;
 };

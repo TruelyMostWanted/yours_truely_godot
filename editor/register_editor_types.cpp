@@ -96,6 +96,7 @@
 #include "editor/inspector/subtitle_editor_plugin.h"
 #include "editor/inspector/tool_button_editor_plugin.h"
 #include "editor/plugins/pck_extract_editor_plugin.h"
+#include "editor/plugins/transition_template_editor_plugin.h"
 #include "editor/scene/2d/camera_2d_editor_plugin.h"
 #include "editor/scene/2d/light_occluder_2d_editor_plugin.h"
 #include "editor/scene/2d/line_2d_editor_plugin.h"
@@ -289,6 +290,7 @@ void register_editor_types() {
 	EditorPlugins::add_by_type<SpriteSheetEditorPlugin>();
 	EditorPlugins::add_by_type<ThemeEditorPlugin>();
 	EditorPlugins::add_by_type<ToolButtonEditorPlugin>();
+	EditorPlugins::add_by_type<TransitionTemplateEditorPlugin>();
 	EditorPlugins::add_by_type<VirtualJoystickEditorPlugin>();
 
 	// Node2D-based editor plugins.
