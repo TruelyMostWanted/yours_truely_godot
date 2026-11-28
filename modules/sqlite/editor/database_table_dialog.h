@@ -37,6 +37,7 @@
 
 class Label;
 class Tree;
+class TreeItem;
 
 // Edits the columns of one table (#437): name, declared type, NOT NULL, default and primary key, in order.
 // Renames, removed columns and columns added at the end use ALTER TABLE, which keeps every other part of the
