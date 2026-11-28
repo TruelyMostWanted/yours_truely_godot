@@ -1017,7 +1017,7 @@ bool CSVTableEditor::is_translation_csv(const CSV *p_csv) {
 	Ref<DataValidation> header_issues;
 	header_issues.instantiate();
 	CSV::check_translation_header(p_csv->get_header(), translation_header, header_issues.ptr());
-	return translation_header.has_known_language && translation_header.invalid_columns.is_empty() && translation_header.unknown_columns.is_empty();
+	return translation_header.is_translation_table();
 }
 
 bool CSVTableEditor::can_edit(const Object *p_object) {

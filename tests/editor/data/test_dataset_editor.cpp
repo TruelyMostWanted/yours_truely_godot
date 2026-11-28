@@ -35,6 +35,8 @@ TEST_FORCE_LINK(test_dataset_editor)
 #ifdef TOOLS_ENABLED
 
 #include "core/io/csv_format.h"
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
 #include "core/io/ini_format.h"
 #include "core/io/json.h"
 #include "core/io/text_data_format.h"
@@ -42,6 +44,8 @@ TEST_FORCE_LINK(test_dataset_editor)
 #include "core/object/class_db.h"
 #include "editor/data/csv_table_editor.h"
 #include "editor/data/dataset_editor.h"
+#include "editor/import/resource_importer_csv_dataset.h"
+#include "tests/test_utils.h"
 
 #include "modules/modules_enabled.gen.h" // For yaml, toml.
 
@@ -111,6 +115,52 @@ TEST_CASE("[DatasetEditor] Data CSVs and translation CSVs") {
 	csv->parse("unit,id,hp\nknight,1,100\n");
 	CHECK_FALSE(CSVTableEditor::is_translation_csv(csv.ptr()));
 	CHECK(DatasetEditor::can_open_automatically(csv.ptr()));
+}
+
+static bool is_translation_header(const Vector<String> &p_header) {
+	CSV::TranslationHeader header;
+	Ref<DataValidation> issues;
+	issues.instantiate();
+	CSV::check_translation_header(p_header, header, issues.ptr());
+	return header.is_translation_table();
+}
+
+TEST_CASE("[CSV] Translation tables and data with locale-like columns") {
+	CHECK(is_translation_header({ "keys", "en", "de" }));
+	CHECK(is_translation_header({ "id", "en_US", "pt_BR", "_note", "?context" }));
+	CHECK(is_translation_header({ "keys", "?plural", "en", "fr" }));
+	// Data: a column that is no locale ("hp"), or one that only looks like one next to it ("id" is Indonesian).
+	CHECK_FALSE(is_translation_header({ "unit", "id", "hp" }));
+	CHECK_FALSE(is_translation_header({ "name", "it", "count" }));
+	CHECK_FALSE(is_translation_header({ "keys", "en", "" }));
+	CHECK_FALSE(is_translation_header({ "name", "hp" }));
+	CHECK_FALSE(is_translation_header({ "keys" }));
+}
+
+TEST_CASE("[ResourceImporterCSVDataset] The importer of a new CSV") {
+	const String folder = TestUtils::get_temp_path("csv_dataset_importer");
+	DirAccess::make_dir_recursive_absolute(folder);
+	const String data_path = folder.path_join("units.csv");
+	const String translation_path = folder.path_join("texts.csv");
+	{
+		Ref<FileAccess> file = FileAccess::open(data_path, FileAccess::WRITE);
+		REQUIRE(file.is_valid());
+		file->store_string("unit,id,hp\nknight,1,100\n");
+	}
+	{
+		Ref<FileAccess> file = FileAccess::open(translation_path, FileAccess::WRITE);
+		REQUIRE(file.is_valid());
+		file->store_string("keys,en,de\nHELLO,Hello,Hallo\n");
+	}
+	// A data CSV with an "id" column stays a dataset; the translation table goes to CSV Translation.
+	CHECK_FALSE(ResourceImporterCSVDataset::is_translation_file(data_path));
+	CHECK(ResourceImporterCSVDataset::is_translation_file(translation_path));
+	Ref<ResourceImporterCSVDataset> importer;
+	importer.instantiate();
+	CHECK(importer->get_priority_for_file(data_path) > 1.0);
+	CHECK(importer->get_priority_for_file(translation_path) < 1.0);
+	DirAccess::remove_absolute(data_path);
+	DirAccess::remove_absolute(translation_path);
 }
 
 TEST_CASE("[DatasetEditor] INI sections and XML elements") {
