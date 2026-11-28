@@ -178,9 +178,13 @@ void EditorSpeakerPicker::_pick() {
 	if (selected == nullptr) {
 		return;
 	}
-	const StringName id = selected->get_metadata(0);
+	const StringName id = selected->get_metadata(0); // The DialogueSpeaker id as stored, not the searched text.
 	hide();
 	emit_signal(SNAME("speaker_picked"), id);
+}
+
+void EditorSpeakerPicker::ok_pressed() {
+	_pick();
 }
 
 void EditorSpeakerPicker::popup_picker(const StringName &p_current_id) {
@@ -226,7 +230,6 @@ EditorSpeakerPicker::EditorSpeakerPicker() {
 	list->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	list->connect("item_activated", callable_mp(this, &EditorSpeakerPicker::_pick));
 	box->add_child(list);
-	connect(SceneStringName(confirmed), callable_mp(this, &EditorSpeakerPicker::_pick));
 }
 
 // EditorPropertySpeakerId

@@ -60,6 +60,9 @@ class EditorSpeakerPicker : public ConfirmationDialog {
 protected:
 	void _notification(int p_what);
 	static void _bind_methods();
+	// The OK button and Enter in the search field. Not the `confirmed` signal: the class is not in ClassDB until
+	// its constructor returns, so connecting to inherited signals there fails.
+	virtual void ok_pressed() override;
 
 public:
 	// Adds the speakers of `p_add` whose id is not in `r_speakers` yet (ignoring case), with their source path.
