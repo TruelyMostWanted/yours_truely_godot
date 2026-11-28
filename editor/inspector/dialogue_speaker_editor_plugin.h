@@ -59,7 +59,7 @@ public:
 	DialogueSpeakerPreview(const Ref<Resource> &p_resource);
 };
 
-// Also refreshes the speaker id suggestions of the inspected object when the project's speakers change.
+// Previews of speaker resources and the speaker id editor. Also refreshes the speaker id suggestions of the inspected object when the project's speakers change.
 class EditorInspectorPluginDialogueSpeaker : public EditorInspectorPlugin {
 	GDCLASS(EditorInspectorPluginDialogueSpeaker, EditorInspectorPlugin);
 
@@ -70,6 +70,8 @@ class EditorInspectorPluginDialogueSpeaker : public EditorInspectorPlugin {
 public:
 	virtual bool can_handle(Object *p_object) override;
 	virtual void parse_begin(Object *p_object) override;
+	// Speaker ids (SubtitleSegment.speaker, DialogueLineNode.speaker): a text field with a "Pick a speaker" button.
+	virtual bool parse_property(Object *p_object, const Variant::Type p_type, const String &p_path, const PropertyHint p_hint, const String &p_hint_text, const BitField<PropertyUsageFlags> p_usage, const bool p_wide = false) override;
 
 	EditorInspectorPluginDialogueSpeaker();
 };

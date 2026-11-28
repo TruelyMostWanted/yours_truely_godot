@@ -36,6 +36,7 @@
 #include "core/object/class_db.h"
 #include "editor/editor_interface.h"
 #include "editor/editor_string_names.h"
+#include "editor/inspector/editor_speaker_picker.h"
 #include "editor/themes/editor_scale.h"
 #include "scene/gui/color_rect.h"
 #include "scene/gui/label.h"
@@ -145,13 +146,25 @@ void EditorInspectorPluginDialogueSpeaker::_speakers_changed(const Ref<Resource>
 	}
 }
 
+static bool _has_speaker_id_property(const Object *p_object) {
+	return Object::cast_to<SubtitleSegment>(p_object) != nullptr || p_object->is_class("DialogueLineNode");
+}
+
 bool EditorInspectorPluginDialogueSpeaker::can_handle(Object *p_object) {
-	return Object::cast_to<DialogueSpeaker>(p_object) != nullptr || Object::cast_to<DialogueSpeakers>(p_object) != nullptr;
+	return Object::cast_to<DialogueSpeaker>(p_object) != nullptr || Object::cast_to<DialogueSpeakers>(p_object) != nullptr || _has_speaker_id_property(p_object);
+}
+
+bool EditorInspectorPluginDialogueSpeaker::parse_property(Object *p_object, const Variant::Type p_type, const String &p_path, const PropertyHint p_hint, const String &p_hint_text, const BitField<PropertyUsageFlags> p_usage, const bool p_wide) {
+	if (p_type != Variant::STRING_NAME || p_path != "speaker" || !_has_speaker_id_property(p_object)) {
+		return false;
+	}
+	add_property_editor(p_path, memnew(EditorPropertySpeakerId));
+	return true;
 }
 
 void EditorInspectorPluginDialogueSpeaker::parse_begin(Object *p_object) {
 	Resource *resource = Object::cast_to<Resource>(p_object);
-	if (resource != nullptr) {
+	if (resource != nullptr && !_has_speaker_id_property(p_object)) {
 		add_custom_control(memnew(DialogueSpeakerPreview(Ref<Resource>(resource))));
 	}
 }
