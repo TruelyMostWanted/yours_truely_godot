@@ -541,6 +541,22 @@ TEST_CASE("[SQLite] Database dock: keys, views and a save of several tables") {
 	const Vector<String> pair_key = { "a", "b" };
 	CHECK(DatabaseEditor::get_key_columns(db, "pairs") == pair_key);
 
+	// A column named "rowid" hides the rowid: the next alias is used.
+	REQUIRE(db->execute("CREATE TABLE odd (rowid TEXT, oid TEXT);") == OK);
+	CHECK(DatabaseEditor::get_key_columns(db, "odd") == Vector<String>{ "_rowid_" });
+
+	// Quoted names: a table and a column with a double quote and a space.
+	REQUIRE(db->execute("CREATE TABLE \"my \"\"items\" (\"the \"\"id\" INTEGER PRIMARY KEY, v TEXT); INSERT INTO \"my \"\"items\" VALUES (7, 'old');") == OK);
+	CHECK(DatabaseEditor::get_key_columns(db, "my \"items") == Vector<String>{ "the \"id" });
+	Dictionary quoted_value;
+	quoted_value["v"] = "new";
+	Dictionary quoted_rows;
+	quoted_rows[Array{ 7 }] = quoted_value;
+	Variant quoted_failed;
+	String quoted_message;
+	CHECK(DatabaseEditor::apply_changes(db, "my \"items", Vector<String>{ "the \"id" }, Array{ quoted_rows, Dictionary(), Array() }, quoted_failed, quoted_message) == OK);
+	CHECK(Dictionary(db->query("SELECT v FROM \"my \"\"items\";")[0])["v"] == Variant("new"));
+
 	// Views are listed apart from the tables.
 	CHECK(DatabaseEditor::get_view_names(db) == PackedStringArray{ "item_names" });
 	CHECK_FALSE(db->get_table_names().has("item_names"));

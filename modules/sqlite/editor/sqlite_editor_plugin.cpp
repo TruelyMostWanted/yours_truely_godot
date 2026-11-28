@@ -239,7 +239,10 @@ String SQLiteEditorPlugin::get_unsaved_status(const String &p_for_scene) const {
 }
 
 void SQLiteEditorPlugin::save_external_data() {
-	database_editor->save_all();
+	// A failed save keeps the edits pending, so get_unsaved_status() asks again; the dock shows why.
+	if (!database_editor->save_all()) {
+		database_editor->make_visible();
+	}
 }
 
 SQLiteEditorPlugin::SQLiteEditorPlugin() {

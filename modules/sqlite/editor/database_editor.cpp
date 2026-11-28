@@ -56,6 +56,7 @@
 #include "scene/gui/split_container.h"
 #include "scene/gui/text_edit.h"
 #include "scene/gui/tree.h"
+#include "scene/resources/font.h"
 #include "scene/scene_string_names.h"
 #include "servers/display/display_server.h"
 
@@ -86,6 +87,9 @@ static String _database_editor_cell_text(const Variant &p_value) {
 
 // Typed by the column affinity; anything else is stored as text, as SQLite does.
 static Variant _database_editor_parse_cell(const String &p_text, SQLiteColumn::Affinity p_affinity) {
+	if (p_text.is_empty() && (p_affinity == SQLiteColumn::AFFINITY_INTEGER || p_affinity == SQLiteColumn::AFFINITY_REAL || p_affinity == SQLiteColumn::AFFINITY_NUMERIC)) {
+		return Variant(); // An empty number is NULL, not an empty text.
+	}
 	switch (p_affinity) {
 		case SQLiteColumn::AFFINITY_INTEGER:
 		case SQLiteColumn::AFFINITY_NUMERIC:
@@ -102,6 +106,11 @@ static Variant _database_editor_parse_cell(const String &p_text, SQLiteColumn::A
 			break;
 	}
 	return p_text;
+}
+
+// The filter text matches anywhere; % and _ typed by the user match themselves (LIKE ... ESCAPE with a backslash).
+static String _database_editor_like_pattern(const String &p_text) {
+	return "%" + p_text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
 }
 
 static bool _database_editor_is_empty(const Array &p_changes) {
@@ -192,12 +201,23 @@ Error DatabaseEditor::apply_changes(const Ref<SQLiteDatabase> &p_database, const
 Vector<String> DatabaseEditor::get_key_columns(const Ref<SQLiteDatabase> &p_database, const String &p_table) {
 	Vector<String> keys;
 	ERR_FAIL_COND_V(p_database.is_null(), keys);
-	const TypedArray<Dictionary> info = p_database->query("SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk;", varray(p_table));
+	PackedStringArray names;
+	const TypedArray<Dictionary> info = p_database->query("SELECT name, pk FROM pragma_table_info(?) ORDER BY pk;", varray(p_table));
 	for (int i = 0; i < info.size(); i++) {
-		keys.push_back(String(Dictionary(info[i])["name"]));
+		const Dictionary row = info[i];
+		names.push_back(String(row["name"]).to_lower());
+		if (int64_t(row["pk"]) > 0) {
+			keys.push_back(String(row["name"]));
+		}
 	}
 	if (keys.is_empty()) {
-		keys.push_back("rowid");
+		// A column named "rowid" hides the rowid; SQLite has two more names for it.
+		for (const String alias : { "rowid", "_rowid_", "oid" }) {
+			if (!names.has(alias)) {
+				keys.push_back(alias);
+				break;
+			}
+		}
 	}
 	return keys;
 }
@@ -227,6 +247,15 @@ DatabaseEditor::OpenDatabase *DatabaseEditor::_get_selected() {
 	return database.is_empty() ? nullptr : databases.getptr(database);
 }
 
+String DatabaseEditor::_get_path_of(int p_id) const {
+	for (const KeyValue<String, OpenDatabase> &E : databases) {
+		if (E.value.id == p_id) {
+			return E.key;
+		}
+	}
+	return String();
+}
+
 Array DatabaseEditor::_get_changes() const {
 	const OpenDatabase *entry = database.is_empty() ? nullptr : databases.getptr(database);
 	if (entry && entry->pending.has(table)) {
@@ -241,21 +270,12 @@ bool DatabaseEditor::_has_pending(const String &p_table) const {
 }
 
 void DatabaseEditor::_update_side_bar() {
-	// Files deleted or moved outside the editor: their edits can't be saved anymore.
-	Vector<String> missing;
-	for (const KeyValue<String, OpenDatabase> &E : databases) {
-		if (!FileAccess::exists(E.key)) {
-			missing.push_back(E.key);
-		}
+	// Files gone outside the editor (another tool's save, a checkout) stay open with their pending edits until
+	// they are closed or removed in the FileSystem dock.
+	for (KeyValue<String, OpenDatabase> &E : databases) {
+		E.value.missing = !FileAccess::exists(E.key);
 	}
-	for (const String &path : missing) {
-		memdelete(databases[path].undo_redo);
-		databases.erase(path);
-		if (path == database) {
-			_select_table(String(), String());
-		}
-	}
-
+	side_bar_outdated = false;
 	updating_side_bar = true;
 	side_bar->clear();
 	TreeItem *root = side_bar->create_item();
@@ -272,6 +292,11 @@ void DatabaseEditor::_update_side_bar() {
 		database_item->add_button(0, close_icon, DATABASE_EDITOR_BUTTON_CLOSE, false, TTR("Close the database."));
 		if (E.key == database && table.is_empty()) {
 			database_item->select(0);
+		}
+		if (E.value.missing) {
+			database_item->set_custom_color(0, get_theme_color(SNAME("error_color"), EditorStringName(Editor)));
+			database_item->set_tooltip_text(0, vformat(TTR("File not found: %s"), E.value.path));
+			continue;
 		}
 
 		Ref<SQLiteDatabase> connection = _open(E.key, SQLiteDatabase::OPEN_MODE_READ_ONLY, status_label);
@@ -300,12 +325,12 @@ void DatabaseEditor::_update_side_bar() {
 
 void DatabaseEditor::_update_actions() {
 	const OpenDatabase *entry = _get_selected();
-	const bool editable = !table.is_empty() && !view;
+	const bool editable = !key_columns.is_empty();
 	const bool has_pending = entry && !entry->pending.is_empty();
 
 	PopupMenu *popup = table_menu->get_popup();
 	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_CREATE), entry == nullptr);
-	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_RENAME), !editable);
+	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_RENAME), table.is_empty() || view);
 	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_DELETE), table.is_empty());
 	popup->set_item_disabled(popup->get_item_index(TABLE_MENU_REFRESH), databases.is_empty());
 	popup = values_menu->get_popup();
@@ -387,9 +412,9 @@ void DatabaseEditor::_load_page() {
 		Array params;
 		if (!filter_edit->get_text().is_empty()) {
 			for (const Column &column : columns) {
-				where += (where.is_empty() ? " WHERE " : " OR ") + _database_editor_quote(column.name) + " LIKE ?1";
+				where += (where.is_empty() ? " WHERE " : " OR ") + _database_editor_quote(column.name) + " LIKE ?1 ESCAPE '\\'";
 			}
-			params.push_back("%" + filter_edit->get_text() + "%");
+			params.push_back(_database_editor_like_pattern(filter_edit->get_text()));
 		}
 		const TypedArray<Dictionary> count = connection->query("SELECT COUNT(*) AS n FROM " + table_sql + where + ";", params);
 		const int64_t total = count.is_empty() ? 0 : int64_t(Dictionary(count[0])["n"]);
@@ -397,18 +422,32 @@ void DatabaseEditor::_load_page() {
 		page = CLAMP(page, 0, page_count - 1);
 		page_label->set_text(vformat(TTR("Page %d of %d, %d rows"), page + 1, page_count, total));
 
-		String select;
+		// Keys, then the values with BLOBs left out, then the BLOB sizes: a page never loads BLOB data.
+		PackedStringArray select;
 		for (const String &key : key_columns) {
-			select += _database_editor_quote(key) + ", ";
+			select.push_back(_database_editor_quote(key));
 		}
-		String order;
+		for (const Column &column : columns) {
+			const String column_sql = _database_editor_quote(column.name);
+			select.push_back(vformat("CASE WHEN typeof(%s) = 'blob' THEN NULL ELSE %s END", column_sql, column_sql));
+		}
+		for (const Column &column : columns) {
+			const String column_sql = _database_editor_quote(column.name);
+			select.push_back(vformat("CASE WHEN typeof(%s) = 'blob' THEN length(%s) END", column_sql, column_sql));
+		}
+		// The keys break ties, so OFFSET pages neither repeat nor skip rows.
+		PackedStringArray order_terms;
 		if (sort_column >= 0) {
-			order = " ORDER BY " + _database_editor_quote(columns[sort_column].name) + (sort_descending ? " DESC" : " ASC");
+			order_terms.push_back(_database_editor_quote(columns[sort_column].name) + (sort_descending ? " DESC" : " ASC"));
 		}
+		for (const String &key : key_columns) {
+			order_terms.push_back(_database_editor_quote(key));
+		}
+		const String order = order_terms.is_empty() ? String() : " ORDER BY " + String(", ").join(order_terms);
 		const int limit_index = params.size() + 1;
 		params.push_back(DATABASE_EDITOR_PAGE_SIZE);
 		params.push_back(int64_t(page) * DATABASE_EDITOR_PAGE_SIZE);
-		Ref<SQLiteStatement> statement = connection->prepare(vformat("SELECT %s* FROM %s%s%s LIMIT ?%d OFFSET ?%d;", select, table_sql, where, order, limit_index, limit_index + 1));
+		Ref<SQLiteStatement> statement = connection->prepare(vformat("SELECT %s FROM %s%s%s LIMIT ?%d OFFSET ?%d;", String(", ").join(select), table_sql, where, order, limit_index, limit_index + 1));
 		if (statement.is_valid() && statement->bind_values(params) == OK) {
 			while (statement->step() == SQLiteStatement::STEP_RESULT_ROW) {
 				Array row;
@@ -423,6 +462,7 @@ void DatabaseEditor::_load_page() {
 		}
 		statement.unref();
 		connection->close();
+		databases[database].read_time = FileAccess::get_modified_time(database);
 	} else {
 		page_label->set_text(String());
 	}
@@ -439,6 +479,8 @@ void DatabaseEditor::_render() {
 	const Color added_color = get_theme_color(SNAME("success_color"), EditorStringName(Editor)) * Color(1, 1, 1, 0.2);
 	const Color changed_color = get_theme_color(SNAME("warning_color"), EditorStringName(Editor)) * Color(1, 1, 1, 0.2);
 	const Color error_color = get_theme_color(SNAME("error_color"), EditorStringName(Editor));
+	const Ref<Font> null_font = get_theme_font(SNAME("doc_italic"), EditorStringName(EditorFonts));
+	const bool editable = !key_columns.is_empty();
 	const int key_count = key_columns.size();
 	const int column_count = int(columns.size());
 	const Array changes = _get_changes();
@@ -461,12 +503,16 @@ void DatabaseEditor::_render() {
 			const bool has_change = changed.has(column_name);
 			const bool is_default = inserted && !has_change;
 			const Variant value = has_change ? changed[column_name] : (inserted ? Variant() : rows[i - inserts.size()][key_count + c]);
-			const String text = is_default ? String("DEFAULT") : _database_editor_cell_text(value);
+			const Variant blob_size = (has_change || inserted) ? Variant() : rows[i - inserts.size()][key_count + column_count + c];
+			const bool is_blob = blob_size.get_type() != Variant::NIL;
+			const String text = is_default ? String("DEFAULT") : (is_blob ? vformat("[BLOB: %d bytes]", int64_t(blob_size)) : _database_editor_cell_text(value));
 			item->set_text(c, text);
 			item->set_metadata(c, text);
-			item->set_editable(c, !view && !deleted && value.get_type() != Variant::PACKED_BYTE_ARRAY);
-			if (is_default || value.get_type() == Variant::NIL) {
+			item->set_editable(c, editable && !deleted && !is_blob);
+			if (is_default || (!is_blob && value.get_type() == Variant::NIL)) {
+				// Dimmed and in italics: a text "NULL" looks different.
 				item->set_custom_color(c, dim_color);
+				item->set_custom_font(c, null_font);
 			}
 			if (failed) {
 				item->set_custom_bg_color(c, error_color * Color(1, 1, 1, 0.4));
@@ -487,12 +533,13 @@ void DatabaseEditor::_render() {
 	_update_actions();
 }
 
-void DatabaseEditor::_set_pending(const String &p_database, const Dictionary &p_pending, const String &p_table) {
-	OpenDatabase *entry = databases.getptr(p_database);
+void DatabaseEditor::_set_pending(int p_id, const Dictionary &p_pending, const String &p_table) {
+	const String path = _get_path_of(p_id); // The file may have moved since the action.
+	OpenDatabase *entry = databases.getptr(path);
 	ERR_FAIL_NULL(entry);
 	entry->pending = p_pending.duplicate(true);
-	if (p_database != database || p_table != table) {
-		_select_table(p_database, p_table); // Undo and redo show the table they change.
+	if (path != database || p_table != table) {
+		_select_table(path, p_table); // Undo and redo show the table they change.
 	} else {
 		failed_row = Variant();
 		_render();
@@ -512,8 +559,8 @@ void DatabaseEditor::_commit(const String &p_action, const Array &p_changes) {
 		next[table] = p_changes;
 	}
 	entry->undo_redo->create_action(p_action);
-	entry->undo_redo->add_do_method(callable_mp(this, &DatabaseEditor::_set_pending).bind(database, next, table));
-	entry->undo_redo->add_undo_method(callable_mp(this, &DatabaseEditor::_set_pending).bind(database, entry->pending.duplicate(true), table));
+	entry->undo_redo->add_do_method(callable_mp(this, &DatabaseEditor::_set_pending).bind(entry->id, next, table));
+	entry->undo_redo->add_undo_method(callable_mp(this, &DatabaseEditor::_set_pending).bind(entry->id, entry->pending.duplicate(true), table));
 	entry->undo_redo->commit_action();
 }
 
@@ -547,7 +594,7 @@ void DatabaseEditor::_cell_edited() {
 }
 
 void DatabaseEditor::_insert_row() {
-	if (table.is_empty() || view) {
+	if (key_columns.is_empty()) {
 		return;
 	}
 	const Array changes = _get_changes();
@@ -556,7 +603,7 @@ void DatabaseEditor::_insert_row() {
 }
 
 void DatabaseEditor::_delete_rows() {
-	if (table.is_empty() || view) {
+	if (key_columns.is_empty()) {
 		return;
 	}
 	const Array changes = _get_changes();
@@ -615,10 +662,15 @@ Error DatabaseEditor::_save_database(const String &p_database) {
 		return ERR_CANT_OPEN;
 	}
 	// All tables in one transaction: a failing row leaves the file as it was.
+	const bool changed_outside = entry->read_time != 0 && FileAccess::get_modified_time(p_database) != entry->read_time;
 	Variant failed;
 	String message;
 	String failed_table;
 	Error err = connection->begin_transaction();
+	if (err == OK) {
+		// Foreign keys are checked at COMMIT: the tables are written in any order.
+		err = connection->execute("PRAGMA defer_foreign_keys = ON;");
+	}
 	for (const KeyValue<Variant, Variant> &E : entry->pending) {
 		if (err != OK) {
 			break;
@@ -658,11 +710,15 @@ Error DatabaseEditor::_save_database(const String &p_database) {
 	if (p_database == database) {
 		_load_page();
 	}
-	_report_written(p_database, TTR("Saved."));
+	_report_written(p_database, changed_outside ? TTR("Saved. The file was changed outside the editor since the dock read it: check the rows.") : TTR("Saved."));
 	return OK;
 }
 
 void DatabaseEditor::_report_written(const String &p_database, const String &p_message) {
+	OpenDatabase *entry = databases.getptr(p_database);
+	if (entry) {
+		entry->read_time = FileAccess::get_modified_time(p_database);
+	}
 	_update_side_bar();
 	// The module uses no file locks: a running game reads res:// databases as unchanging files.
 	status_label->set_text(EditorRunBar::get_singleton()->is_playing() ? p_message + " " + TTR("Restart the running game: it may still read the old data.") : p_message);
@@ -732,7 +788,7 @@ void DatabaseEditor::_table_menu_pressed(int p_id) {
 			if (sql_edit->get_text().strip_edges().is_empty()) {
 				sql_edit->set_text("CREATE TABLE new_table (\n\tid INTEGER PRIMARY KEY,\n\tname TEXT NOT NULL DEFAULT ''\n);");
 			}
-			sql_status->set_text(TTR("Runs at once, in one transaction. CREATE VIEW and CREATE INDEX work too."));
+			sql_status->set_text(TTR("Runs any SQL at once, in one transaction, and can't be undone: CREATE TABLE, CREATE VIEW, CREATE INDEX, ALTER TABLE, DROP and more. Don't use BEGIN, COMMIT or ROLLBACK."));
 			sql_dialog->popup_centered_clamped(Size2(600, 360) * EDSCALE, 0.8);
 			sql_edit->grab_focus();
 		} break;
@@ -791,12 +847,19 @@ void DatabaseEditor::_revert() {
 		return;
 	}
 	entry->undo_redo->create_action(TTR("Revert Edits"));
-	entry->undo_redo->add_do_method(callable_mp(this, &DatabaseEditor::_set_pending).bind(database, Dictionary(), table));
-	entry->undo_redo->add_undo_method(callable_mp(this, &DatabaseEditor::_set_pending).bind(database, entry->pending.duplicate(true), table));
+	entry->undo_redo->add_do_method(callable_mp(this, &DatabaseEditor::_set_pending).bind(entry->id, Dictionary(), table));
+	entry->undo_redo->add_undo_method(callable_mp(this, &DatabaseEditor::_set_pending).bind(entry->id, entry->pending.duplicate(true), table));
 	entry->undo_redo->commit_action();
 }
 
 void DatabaseEditor::_create_confirmed() {
+	OpenDatabase *entry = _get_selected();
+	ERR_FAIL_NULL(entry);
+	// The SQL may drop or change any table: pending edits would point at rows that are gone.
+	if (!entry->pending.is_empty()) {
+		sql_status->set_text(TTR("Save or revert the pending edits of this database first."));
+		return;
+	}
 	Ref<SQLiteDatabase> connection = _open(database, SQLiteDatabase::OPEN_MODE_READ_WRITE, sql_status);
 	if (connection.is_null()) {
 		return;
@@ -804,15 +867,17 @@ void DatabaseEditor::_create_confirmed() {
 	PackedStringArray before = connection->get_table_names();
 	before.append_array(get_view_names(connection));
 	Error err = connection->begin_transaction();
+	bool ended = false; // The SQL ended the transaction itself: what ran before that is written.
 	if (err == OK) {
 		err = connection->execute(sql_edit->get_text());
+		ended = !connection->is_in_transaction();
 	}
-	if (err == OK) {
+	if (err == OK && !ended) {
 		err = connection->commit();
 	}
 	String created;
 	if (err != OK) {
-		sql_status->set_text(connection->get_last_error_message());
+		sql_status->set_text(ended ? connection->get_last_error_message() + " " + TTR("The SQL ended the transaction itself: the statements before that are written.") : connection->get_last_error_message());
 		if (connection->is_in_transaction()) {
 			connection->rollback();
 		}
@@ -827,14 +892,17 @@ void DatabaseEditor::_create_confirmed() {
 		}
 	}
 	connection->close();
+	if (err != OK && !ended) {
+		return; // Nothing changed; the dialog stays open with SQLite's message.
+	}
+	entry->undo_redo->clear_history(); // The schema may have changed under the history.
+	_select_table(database, created.is_empty() ? table : created);
 	if (err != OK) {
-		return; // The dialog stays open with SQLite's message.
+		_report_written(database, TTR("The SQL failed after it ended the transaction itself."));
+		return;
 	}
 	sql_dialog->hide();
 	sql_edit->set_text(String());
-	if (!created.is_empty()) {
-		_select_table(database, created);
-	}
 	_report_written(database, created.is_empty() ? TTR("SQL run.") : vformat(TTR("Created \"%s\"."), created));
 }
 
@@ -941,6 +1009,14 @@ void DatabaseEditor::_run_query() {
 	connection->close();
 }
 
+void DatabaseEditor::_query_gui_input(const Ref<InputEvent> &p_event) {
+	const Ref<InputEventKey> key_event = p_event;
+	if (key_event.is_valid() && key_event->is_pressed() && !key_event->is_echo() && key_event->is_command_or_control_pressed() && (key_event->get_keycode() == Key::ENTER || key_event->get_keycode() == Key::KP_ENTER)) {
+		_run_query();
+		query_edit->accept_event();
+	}
+}
+
 void DatabaseEditor::_filter_changed(const String &p_text) {
 	page = 0;
 	_load_page();
@@ -988,21 +1064,61 @@ void DatabaseEditor::_file_removed(const String &p_file) {
 	_close_database(ProjectSettings::get_singleton()->globalize_path(p_file));
 }
 
-void DatabaseEditor::_files_moved(const String &p_old_file, const String &p_new_file) {
-	const String old_path = ProjectSettings::get_singleton()->globalize_path(p_old_file);
-	const OpenDatabase *entry = databases.getptr(old_path);
+void DatabaseEditor::_move_database(const String &p_old_path, const String &p_new_file) {
+	const OpenDatabase *entry = databases.getptr(p_old_path);
 	if (entry == nullptr) {
 		return;
 	}
+	// The undo history refers to the stable id, so it keeps working after the move.
 	OpenDatabase moved = *entry;
 	moved.path = p_new_file;
-	databases.erase(old_path);
+	databases.erase(p_old_path);
 	const String new_path = ProjectSettings::get_singleton()->globalize_path(p_new_file);
 	databases.insert(new_path, moved);
-	if (database == old_path) {
+	if (database == p_old_path) {
 		database = new_path;
 	}
 	_update_side_bar();
+}
+
+void DatabaseEditor::_files_moved(const String &p_old_file, const String &p_new_file) {
+	_move_database(ProjectSettings::get_singleton()->globalize_path(p_old_file), p_new_file);
+}
+
+void DatabaseEditor::_folder_moved(const String &p_old_folder, const String &p_new_folder) {
+	const String old_prefix = p_old_folder.ends_with("/") ? p_old_folder : p_old_folder + "/";
+	const String new_prefix = p_new_folder.ends_with("/") ? p_new_folder : p_new_folder + "/";
+	HashMap<String, String> moves; // Globalized old path -> new path as opened.
+	for (const KeyValue<String, OpenDatabase> &E : databases) {
+		if (E.value.path.begins_with(old_prefix)) {
+			moves.insert(E.key, new_prefix + E.value.path.substr(old_prefix.length()));
+		}
+	}
+	for (const KeyValue<String, String> &E : moves) {
+		_move_database(E.key, E.value);
+	}
+}
+
+void DatabaseEditor::_folder_removed(const String &p_folder) {
+	const String prefix = p_folder.ends_with("/") ? p_folder : p_folder + "/";
+	Vector<String> removed;
+	for (const KeyValue<String, OpenDatabase> &E : databases) {
+		if (E.value.path.begins_with(prefix)) {
+			removed.push_back(E.key);
+		}
+	}
+	for (const String &path : removed) {
+		_close_database(path);
+	}
+}
+
+void DatabaseEditor::_filesystem_changed() {
+	// Reading every open database on each scan (every scene save) is wasted work while the dock is hidden.
+	if (is_visible_in_tree()) {
+		_update_side_bar();
+	} else {
+		side_bar_outdated = true;
+	}
 }
 
 void DatabaseEditor::_notification(int p_what) {
@@ -1011,15 +1127,22 @@ void DatabaseEditor::_notification(int p_what) {
 			if (FileSystemDock::get_singleton()) {
 				FileSystemDock::get_singleton()->connect(SNAME("file_removed"), callable_mp(this, &DatabaseEditor::_file_removed));
 				FileSystemDock::get_singleton()->connect(SNAME("files_moved"), callable_mp(this, &DatabaseEditor::_files_moved));
+				FileSystemDock::get_singleton()->connect(SNAME("folder_moved"), callable_mp(this, &DatabaseEditor::_folder_moved));
+				FileSystemDock::get_singleton()->connect(SNAME("folder_removed"), callable_mp(this, &DatabaseEditor::_folder_removed));
 			}
 			if (EditorFileSystem::get_singleton()) {
 				// Database files removed, or tables changed, outside the editor.
-				EditorFileSystem::get_singleton()->connect(SNAME("filesystem_changed"), callable_mp(this, &DatabaseEditor::_update_side_bar));
+				EditorFileSystem::get_singleton()->connect(SNAME("filesystem_changed"), callable_mp(this, &DatabaseEditor::_filesystem_changed));
 			}
 			save_button->set_tooltip_text(vformat(TTR("Write the pending edits of the database in one transaction (%s in the table)."), ED_GET_SHORTCUT("editor/save_scene")->get_as_text()));
 		} break;
 		case NOTIFICATION_THEME_CHANGED: {
 			_update_side_bar(); // The icons.
+		} break;
+		case NOTIFICATION_VISIBILITY_CHANGED: {
+			if (side_bar_outdated && is_visible_in_tree()) {
+				_update_side_bar();
+			}
 		} break;
 	}
 }
@@ -1030,9 +1153,11 @@ void DatabaseEditor::edit(const String &p_path, const String &p_table) {
 		OpenDatabase entry;
 		entry.path = p_path;
 		entry.undo_redo = memnew(UndoRedo);
+		entry.id = next_id++;
 		databases.insert(global_path, entry);
 	}
-	if (global_path != database || p_table != table) {
+	// Inspecting the open database again keeps the shown table.
+	if (global_path != database || (!p_table.is_empty() && p_table != table)) {
 		_select_table(global_path, p_table);
 	}
 	_update_side_bar();
@@ -1048,14 +1173,16 @@ PackedStringArray DatabaseEditor::get_unsaved_paths() const {
 	return paths;
 }
 
-void DatabaseEditor::save_all() {
+bool DatabaseEditor::save_all() {
 	Vector<String> paths;
 	for (const KeyValue<String, OpenDatabase> &E : databases) {
 		paths.push_back(E.key);
 	}
+	bool saved = true;
 	for (const String &path : paths) {
-		_save_database(path);
+		saved = _save_database(path) == OK && saved;
 	}
+	return saved;
 }
 
 DatabaseEditor::DatabaseEditor() {
@@ -1219,6 +1346,8 @@ DatabaseEditor::DatabaseEditor() {
 	query_status->set_text_overrun_behavior(TextServer::OVERRUN_TRIM_ELLIPSIS);
 	query_vbox->add_child(query_status);
 	query_dialog->connect(SceneStringName(confirmed), callable_mp(this, &DatabaseEditor::_run_query));
+	query_edit->connect(SceneStringName(gui_input), callable_mp(this, &DatabaseEditor::_query_gui_input));
+	query_edit->set_tooltip_text(TTR("Ctrl+Enter runs the query."));
 	add_child(query_dialog);
 }
 

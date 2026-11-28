@@ -76,6 +76,9 @@ class DatabaseEditor : public EditorDock {
 		String path; // The path as opened (res://, user:// or absolute), shown in the side bar.
 		Dictionary pending; // Table name -> [updates, deletes, inserts] in the format of apply_changes().
 		UndoRedo *undo_redo = nullptr; // The history of the pending edits.
+		int id = 0; // Stable across moves: the undo history refers to it, not to the path.
+		uint64_t read_time = 0; // Modified time of the file when the dock last read or wrote it.
+		bool missing = false; // The file was not found; kept until closed, so pending edits are not lost.
 	};
 
 	struct Column {
@@ -89,8 +92,8 @@ class DatabaseEditor : public EditorDock {
 	String table; // Selected table or view, or empty.
 	bool view = false; // The selected table is a view: rows are read-only.
 	LocalVector<Column> columns;
-	Vector<String> key_columns; // The primary key columns, or "rowid"; empty for views.
-	Vector<Array> rows; // The current page: key values, then column values.
+	Vector<String> key_columns; // The primary key columns, or a rowid alias; empty for views.
+	Vector<Array> rows; // The current page: key values, column values (NULL for BLOBs), then BLOB sizes (NULL for other values).
 	Vector<Variant> row_ids; // Per tree item: the key Array, or the index in inserts.
 	int page = 0;
 	int page_count = 1;
@@ -98,6 +101,8 @@ class DatabaseEditor : public EditorDock {
 	bool sort_descending = false;
 	Variant failed_row; // The key Array or insert index of the row that failed to save.
 	bool updating_side_bar = false;
+	bool side_bar_outdated = false; // The file system changed while the dock was hidden.
+	int next_id = 1;
 	String closing_database; // Asked about in close_prompt.
 
 	MenuButton *table_menu = nullptr;
@@ -128,6 +133,7 @@ class DatabaseEditor : public EditorDock {
 
 	Ref<SQLiteDatabase> _open(const String &p_database, SQLiteDatabase::OpenMode p_mode, Label *p_status);
 	OpenDatabase *_get_selected();
+	String _get_path_of(int p_id) const;
 	Array _get_changes() const;
 	bool _has_pending(const String &p_table) const;
 	void _update_side_bar();
@@ -135,12 +141,13 @@ class DatabaseEditor : public EditorDock {
 	void _select_table(const String &p_database, const String &p_table);
 	void _load_page();
 	void _render();
-	void _set_pending(const String &p_database, const Dictionary &p_pending, const String &p_table);
+	void _set_pending(int p_id, const Dictionary &p_pending, const String &p_table);
 	void _commit(const String &p_action, const Array &p_changes);
 	void _set_cell(const Variant &p_row, int p_column, const Variant &p_value);
 	Error _save_database(const String &p_database);
 	void _close_database(const String &p_database);
 	void _report_written(const String &p_database, const String &p_message);
+	void _move_database(const String &p_old_path, const String &p_new_path);
 
 	void _side_bar_selected();
 	void _side_bar_button_clicked(TreeItem *p_item, int p_column, int p_id, MouseButton p_button);
@@ -166,6 +173,10 @@ class DatabaseEditor : public EditorDock {
 	void _tree_gui_input(const Ref<InputEvent> &p_event);
 	void _file_removed(const String &p_file);
 	void _files_moved(const String &p_old_file, const String &p_new_file);
+	void _folder_moved(const String &p_old_folder, const String &p_new_folder);
+	void _folder_removed(const String &p_folder);
+	void _filesystem_changed();
+	void _query_gui_input(const Ref<InputEvent> &p_event);
 
 protected:
 	void _notification(int p_what);
@@ -181,7 +192,8 @@ public:
 	// and rolled back on an error; inside one, the caller commits or rolls back. On an error, r_failed_row is the key
 	// or insert index of the failing row, and r_message is SQLite's message.
 	static Error apply_changes(const Ref<SQLiteDatabase> &p_database, const String &p_table, const Vector<String> &p_key_columns, const Array &p_changes, Variant &r_failed_row, String &r_message);
-	// The primary key columns of a table in key order, or "rowid" for a table without a primary key.
+	// The primary key columns of a table in key order. Without a primary key: "rowid", or "_rowid_" or "oid"
+	// when a column has that name; empty when all three are column names.
 	static Vector<String> get_key_columns(const Ref<SQLiteDatabase> &p_database, const String &p_table);
 	// The views of the main database, sorted by name.
 	static PackedStringArray get_view_names(const Ref<SQLiteDatabase> &p_database);
@@ -190,8 +202,8 @@ public:
 	void edit(const String &p_path, const String &p_table = String());
 	// Database paths (as opened) with pending edits.
 	PackedStringArray get_unsaved_paths() const;
-	// Saves the pending edits of every open database.
-	void save_all();
+	// Saves the pending edits of every open database; false when one of them failed.
+	bool save_all();
 
 	DatabaseEditor();
 	~DatabaseEditor();
