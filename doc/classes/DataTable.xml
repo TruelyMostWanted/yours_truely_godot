@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="DataTable" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		A table of typed columns described by a [DataSchema], stored column by column.
+	</brief_description>
+	<description>
+		A [DataTable] holds rows and columns of data, for example the items of a game, the rows of a [CSV] file or the records of a JSON array. Each column is a [DataField] of [member schema]: its name, its [enum Variant.Type] and its rules. Cells are converted to the column type when they are set: text and numbers convert, as [code]"42"[/code] or [code]42.0[/code] in an [int] column.
+		Cells are stored per column (Structure of Arrays): an [int], [float], [String] or [bool] column is one packed array, any other type (and a column without a fixed type, [constant TYPE_NIL]) is an [Array]. [method get_column] returns that array without copying the cells, for fast reads in games.
+		A row does not need to have every cell. A cell that is not set is absent: [method has_cell] returns [code]false[/code], [method get_cell] returns [code]null[/code], and [method get_row] and [method to_records] leave its key out. So records with optional keys keep their shape in a round trip, and [code]null[/code] stays a value of its own in a column without a fixed type.
+		[codeblocks]
+		[gdscript]
+		var table = DataTable.new()
+		table.add_column(&amp;"id", TYPE_INT)
+		table.add_column(&amp;"name", TYPE_STRING)
+		table.add_column(&amp;"hp", TYPE_INT)
+		table.add_row({ "id": 1, "name": "Archer", "hp": 40 })
+		table.add_row({ "id": 2, "name": "Knight" })
+		table.set_cell(1, table.find_column(&amp;"hp"), 55)
+
+		var hp_values = table.get_column(table.find_column(&amp;"hp")) # PackedInt64Array(40, 55)
+		table.rows_inserted.connect(func(row, count): print("%d rows inserted at %d" % [count, row]))
+		[/gdscript]
+		[csharp]
+		var table = new DataTable();
+		table.AddColumn("id", Variant.Type.Int);
+		table.AddColumn("name", Variant.Type.String);
+		table.AddColumn("hp", Variant.Type.Int);
+		table.AddRow(new Godot.Collections.Dictionary { { "id", 1 }, { "name", "Archer" }, { "hp", 40 } });
+		table.AddRow(new Godot.Collections.Dictionary { { "id", 2 }, { "name", "Knight" } });
+		table.SetCell(1, table.FindColumn("hp"), 55);
+
+		long[] hpValues = table.GetColumn(table.FindColumn("hp")).AsInt64Array(); // [40, 55]
+		table.RowsInserted += (row, count) =&gt; GD.Print($"{count} rows inserted at {row}");
+		[/csharp]
+		[/codeblocks]
+		[b]Signals:[/b] every change emits one of [signal cells_changed], [signal rows_inserted], [signal rows_removed] or [signal columns_changed], and then [signal Resource.changed]. A view connects to the specific signals to update only what changed.
+		[b]Columns and schema:[/b] the table creates its own [member schema]; assign a saved [DataSchema] to share the columns between tables. Changing the schema directly (adding, removing or retyping a [DataField]) updates the table: cells follow their field, or a field of the same name.
+		[b]Other storage:[/b] by default the cells live in memory. A script, a GDExtension or an engine subclass can override [method _get_row_count], [method _get_cell], [method _has_cell], [method _set_cell], [method _erase_cell], [method _insert_rows], [method _remove_rows], [method _insert_column] and [method _remove_column] to expose the data of another source, such as a file or a database, without copying it. Override all of them; the columns still come from [member schema].
+		[b]Conversion:[/b] [method create_from_records] and [method to_records] convert from and to an [Array] of [Dictionary] records (JSON, YAML, TOML), [method create_from_csv] and [method to_csv] from and to a [CSV] resource.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="_erase_cell" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="column" type="int" />
+			<description>
+				Storage: makes the cell absent. Called by [method erase_cell] and [method set_row] with valid indices for a present cell.
+			</description>
+		</method>
+		<method name="_get_cell" qualifiers="virtual const">
+			<return type="Variant" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="column" type="int" />
+			<description>
+				Storage: returns the value of a present cell, of the column type. Called with valid indices, only after [method _has_cell] returned [code]true[/code].
+			</description>
+		</method>
+		<method name="_get_row_count" qualifiers="virtual const">
+			<return type="int" />
+			<description>
+				Storage: returns the number of rows.
+			</description>
+		</method>
+		<method name="_has_cell" qualifiers="virtual const">
+			<return type="bool" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="column" type="int" />
+			<description>
+				Storage: returns [code]true[/code] if the cell is present, [code]false[/code] if it is absent.
+			</description>
+		</method>
+		<method name="_insert_column" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="column" type="int" />
+			<description>
+				Storage: inserts a column at [param column] whose cells are all absent. The column is already in [member schema] when this is called.
+			</description>
+		</method>
+		<method name="_insert_rows" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="count" type="int" />
+			<description>
+				Storage: inserts [param count] rows at [param row] whose cells are all absent. The rows at and after [param row] move down.
+			</description>
+		</method>
+		<method name="_remove_column" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="column" type="int" />
+			<description>
+				Storage: removes the cells of the column at [param column]. The column is still in [member schema] when this is called.
+			</description>
+		</method>
+		<method name="_remove_rows" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="count" type="int" />
+			<description>
+				Storage: removes [param count] rows starting at [param row]. The rows after them move up.
+			</description>
+		</method>
+		<method name="_set_cell" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="column" type="int" />
+			<param index="2" name="value" type="Variant" />
+			<description>
+				Storage: sets the cell and makes it present. [param value] is already converted to the column type.
+			</description>
+		</method>
+		<method name="add_column">
+			<return type="void" />
+			<param index="0" name="name" type="StringName" />
+			<param index="1" name="type" type="int" enum="Variant.Type" default="0" />
+			<param index="2" name="at" type="int" default="-1" />
+			<description>
+				Adds a column named [param name] of type [param type] at the position [param at] ([code]-1[/code]: at the end). Its cells are absent in every row. [constant TYPE_NIL] makes a column that holds any [Variant]. A new [DataField] is added to [member schema]; set its rules (range, enum, required) through [method DataSchema.get_field].
+				Prints an error if the name is empty or already used, or if [param type] is not a data type ([constant TYPE_OBJECT], [constant TYPE_RID], [constant TYPE_CALLABLE] and [constant TYPE_SIGNAL] are not).
+			</description>
+		</method>
+		<method name="add_row">
+			<return type="void" />
+			<param index="0" name="values" type="Dictionary" default="{}" />
+			<description>
+				Adds a row at the end. [param values] maps column names to values; the cells of the other columns are absent. Values are converted to the column type (text and numbers convert); a value that does not convert, and a key that is not a column, prints an error and is left out.
+			</description>
+		</method>
+		<method name="create_from_csv" qualifiers="static">
+			<return type="DataTable" />
+			<param index="0" name="csv" type="CSV" />
+			<param index="1" name="schema" type="DataSchema" default="null" />
+			<description>
+				Creates a table from the rows of [param csv]. The columns are named after [member CSV.header] (or [code]column_1[/code], [code]column_2[/code], … without one). The matching field of [param schema] (by header name, or by position without a header) is copied into the table's schema with its type and rules; other columns are [String] columns.
+				Cells are converted from text to the column type. An empty cell of a typed column, and a cell that does not convert, is absent; a warning reports the number of cells that do not convert.
+			</description>
+		</method>
+		<method name="create_from_records" qualifiers="static">
+			<return type="DataTable" />
+			<param index="0" name="records" type="Array" />
+			<description>
+				Creates a table from an [Array] of [Dictionary] records, such as a parsed JSON, YAML or TOML array. The columns are the keys of all records, in the order they first appear. A column gets the type of its values if they all have the same type ([int] and [float] together give [float]); otherwise it holds any [Variant]. A key that a record does not have is an absent cell, so [method to_records] gives back the same records.
+			</description>
+		</method>
+		<method name="erase_cell">
+			<return type="void" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="column" type="int" />
+			<description>
+				Makes the cell absent: [method has_cell] returns [code]false[/code] and the key is left out of [method get_row]. Does nothing if the cell is already absent.
+			</description>
+		</method>
+		<method name="find_column" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="name" type="StringName" />
+			<description>
+				Returns the index of the column named [param name], or [code]-1[/code].
+			</description>
+		</method>
+		<method name="find_rows" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<param index="0" name="column" type="int" />
+			<param index="1" name="value" type="Variant" />
+			<description>
+				Returns the rows whose cell in [param column] equals [param value], converted to the column type first. Absent cells never match.
+			</description>
+		</method>
+		<method name="get_cell" qualifiers="const">
+			<return type="Variant" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="column" type="int" />
+			<description>
+				Returns the value of the cell, or [code]null[/code] if it is absent. Use [method has_cell] to tell an absent cell from a [code]null[/code] value in a column without a fixed type.
+			</description>
+		</method>
+		<method name="get_column" qualifiers="const">
+			<return type="Variant" />
+			<param index="0" name="column" type="int" />
+			<description>
+				Returns the cells of [param column] as one array: a [PackedInt64Array] for an [int] column, a [PackedFloat64Array] for a [float] column, a [PackedStringArray] for a [String] column, a [PackedByteArray] of [code]0[/code] and [code]1[/code] for a [bool] column, and an [Array] for any other column. Absent cells hold the default value of the type ([code]0[/code], [code]""[/code], [code]null[/code]).
+				For a table in memory the array is returned without copying the cells; it is copied only when one of them changes.
+			</description>
+		</method>
+		<method name="get_column_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of columns, the number of fields of [member schema].
+			</description>
+		</method>
+		<method name="get_column_name" qualifiers="const">
+			<return type="StringName" />
+			<param index="0" name="column" type="int" />
+			<description>
+				Returns the name of the column, the [member DataField.name] of its field.
+			</description>
+		</method>
+		<method name="get_column_type" qualifiers="const">
+			<return type="int" enum="Variant.Type" />
+			<param index="0" name="column" type="int" />
+			<description>
+				Returns the type of the column. [constant TYPE_NIL] means the column holds any [Variant].
+			</description>
+		</method>
+		<method name="get_row" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="row" type="int" />
+			<description>
+				Returns the present cells of the row as a [Dictionary] of column names ([String]) and values, in column order. Absent cells are left out.
+			</description>
+		</method>
+		<method name="get_row_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the number of rows.
+			</description>
+		</method>
+		<method name="has_cell" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="column" type="int" />
+			<description>
+				Returns [code]true[/code] if the cell is present, [code]false[/code] if it is absent.
+			</description>
+		</method>
+		<method name="insert_row">
+			<return type="void" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="values" type="Dictionary" default="{}" />
+			<description>
+				Inserts a row at [param row] (up to [method get_row_count]) with the cells in [param values], like [method add_row]. The rows at and after [param row] move down.
+			</description>
+		</method>
+		<method name="remove_column">
+			<return type="void" />
+			<param index="0" name="column" type="int" />
+			<description>
+				Removes the column and its cells, and its field from [member schema].
+			</description>
+		</method>
+		<method name="remove_rows">
+			<return type="void" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="count" type="int" default="1" />
+			<description>
+				Removes [param count] rows starting at [param row]. Prints an error if a row is out of range.
+			</description>
+		</method>
+		<method name="rename_column">
+			<return type="void" />
+			<param index="0" name="column" type="int" />
+			<param index="1" name="name" type="StringName" />
+			<description>
+				Renames the column (its field in [member schema]). Prints an error if the name is empty or used by another column.
+			</description>
+		</method>
+		<method name="set_cell">
+			<return type="void" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="column" type="int" />
+			<param index="2" name="value" type="Variant" />
+			<description>
+				Sets the cell to [param value], converted to the column type (for example the text [code]"42"[/code] or the float [code]42.0[/code] in an [int] column). Prints an error and keeps the cell if the value does not convert. To make a cell absent, use [method erase_cell].
+			</description>
+		</method>
+		<method name="set_column_type">
+			<return type="DataValidation" />
+			<param index="0" name="column" type="int" />
+			<param index="1" name="type" type="int" enum="Variant.Type" />
+			<description>
+				Changes the type of the column and converts its cells (text and numbers convert, as when a cell is set). Cells that do not convert become absent; the returned [DataValidation] lists them as [constant DataValidation.ISSUE_KIND_TYPE_MISMATCH] with their row and column, so they can be shown or undone.
+			</description>
+		</method>
+		<method name="set_row">
+			<return type="void" />
+			<param index="0" name="row" type="int" />
+			<param index="1" name="values" type="Dictionary" />
+			<description>
+				Replaces the cells of the row with [param values]: the cells of columns that [param values] does not have become absent.
+			</description>
+		</method>
+		<method name="sort_rows">
+			<return type="void" />
+			<param index="0" name="column" type="int" />
+			<param index="1" name="order" type="int" enum="DataTable.SortOrder" default="0" />
+			<description>
+				Sorts the rows by the cells of [param column]. The sort is stable: rows with equal cells keep their order. Absent cells come last in both orders. In a column without a fixed type, values of different types are ordered by type.
+				This changes the data. A view that only shows the rows in another order sorts its own row order instead.
+			</description>
+		</method>
+		<method name="to_csv" qualifiers="const">
+			<return type="CSV" />
+			<description>
+				Returns the table as a [CSV] resource: the column names as [member CSV.header] and one row of text per table row. Absent cells are empty; numbers, [bool]s and text are written plainly, other values with [method @GlobalScope.var_to_str].
+			</description>
+		</method>
+		<method name="to_records" qualifiers="const">
+			<return type="Array" />
+			<description>
+				Returns the rows as an [Array] of [Dictionary] records, as [method get_row] returns them. Absent cells are left out. The result can be written as JSON, YAML or TOML.
+			</description>
+		</method>
+		<method name="validate" qualifiers="const">
+			<return type="DataValidation" />
+			<param index="0" name="options" type="DataValidationOptions" default="null" />
+			<description>
+				Validates the rows against the rules of [member schema] (required fields, unique values, ranges, enums, patterns) and returns every issue with its row. See [method DataSchema.validate].
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="schema" type="DataSchema" setter="set_schema" getter="get_schema">
+			The columns of the table: one [DataField] per column, in column order. The table creates its own schema; assign a saved [DataSchema] to share the columns between tables. When a schema is assigned, the cells of each column follow the field of the same name. Setting [code]null[/code] gives the table a new empty schema.
+		</member>
+	</members>
+	<signals>
+		<signal name="cells_changed">
+			<param index="0" name="row" type="int" />
+			<param index="1" name="column" type="int" />
+			<param index="2" name="row_count" type="int" />
+			<param index="3" name="column_count" type="int" />
+			<description>
+				Emitted when the cells of a block changed (set, erased or reordered): [param row_count] rows from [param row] and [param column_count] columns from [param column].
+			</description>
+		</signal>
+		<signal name="columns_changed">
+			<description>
+				Emitted when a column was added, removed, renamed or retyped, or when [member schema] changed. The cells of every row may have moved.
+			</description>
+		</signal>
+		<signal name="rows_inserted">
+			<param index="0" name="row" type="int" />
+			<param index="1" name="count" type="int" />
+			<description>
+				Emitted after [param count] rows were inserted at [param row].
+			</description>
+		</signal>
+		<signal name="rows_removed">
+			<param index="0" name="row" type="int" />
+			<param index="1" name="count" type="int" />
+			<description>
+				Emitted after [param count] rows starting at [param row] were removed.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="SORT_ORDER_ASCENDING" value="0" enum="SortOrder">
+			Smallest value first.
+		</constant>
+		<constant name="SORT_ORDER_DESCENDING" value="1" enum="SortOrder">
+			Largest value first.
+		</constant>
+	</constants>
+</class>
